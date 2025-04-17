@@ -1,0 +1,31 @@
+# Global settings for the scraper
+global_settings:
+  max_concurrent_workers: 5 # Max concurrent website tasks
+  log_level: INFO # Logging level (DEBUG, INFO, WARNING, ERROR)
+websites:
+  # Add Grill'd using the custom parser
+  grilld_restaurants:
+    enabled: true
+    start_urls:
+      - https://grilld.com.au/restaurants # The main listing page
+    fetcher: AsyncHTTPXFetcher # Used for the initial fetch AND detail fetches
+    parser: GrilldParser # Use the custom parser
+    storage: [JSONStorage] # Store the results
+    config:
+      # Options for BOTH initial and detail fetches (unless overridden)
+      fetcher_options:
+        headers:
+          User-Agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
+          # Add any other headers Grill'd might require
+        timeout: 25
+      # Optional: Define different options specifically for detail page fetches
+      # detail_fetcher_options:
+      #   timeout: 15
+      #   headers: ...
+
+      # parser_options are ignored by GrilldParser (unless you specifically code it to use them)
+      # parser_options: {} # No need for item_selector or data_selectors here
+
+      storage_options:
+        JSONStorage:
+          output_file: "data/grilld_locations.jsonl"
