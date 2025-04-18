@@ -2,3 +2,5 @@ httpx
 selectolax
 pyaml
 aiofiles
+pydantic
+usaddress
