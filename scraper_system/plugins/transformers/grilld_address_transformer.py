@@ -1,30 +1,14 @@
 import logging
 import re
 from typing import List, Dict, Any, Optional, Tuple, Match
-from datetime import datetime
 import hashlib
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import ValidationError
 
 from scraper_system.interfaces.transformer_interface import TransformerInterface
+from scraper_system.models.location import TransformedLocation
 
 logger = logging.getLogger(__name__)
-
-# --- Pydantic Model for Final Output ---
-class TransformedLocation(BaseModel):
-    business_name: str
-    street_address: Optional[str] = None
-    suburb: Optional[str] = None
-    state: Optional[str] = None
-    postcode: Optional[str] = None
-    drive_thru: bool = False
-    shopping_centre_name: Optional[str] = None
-    source_url: Optional[str] = None # Keep the original URL
-    source: str # Website identifier (e.g., 'grilld')
-    scraped_date: datetime = Field(default_factory=datetime.utcnow)
-    business_id: Optional[str] = None # Unique ID for the location
-
-    # Add a pre-validator or root_validator if needed for complex logic/defaults
 
 # --- Address Parsing Logic ---
 
@@ -136,7 +120,7 @@ def _finalize_parsed_dict(parsed: Dict[str, Optional[str]]) -> Dict[str, Optiona
             final_parsed[key] = value # Keep None as None
     return final_parsed
 
-def parse_australian_address(address_string: str) -> Dict[str, Optional[str]]:
+def parse_grilld_address(address_string: str) -> Dict[str, Optional[str]]:
     """
     Parses a raw Australian address string into components (Refactored for complexity).
     """
@@ -182,50 +166,51 @@ def generate_business_id(name: str, address: str) -> str:
 
 # --- Transformer Implementation ---
 
-class AddressParserTransformer(TransformerInterface):
+class GrilldAddressTransformer(TransformerInterface):
     """
     Transforms raw scraped data by parsing the address field
     and structuring the output using the TransformedLocation model. (Uses refactored parser V4)
     """
     async def transform(self, data: List[Dict[str, Any]], config: Dict[str, Any], site_name: str) -> List[Dict[str, Any]]:
-        transformed_data = []
-        logger.info(f"Starting transformation for {len(data)} items from site '{site_name}' using refactored parser V4")
+            transformed_data = []
+            # Update log message to reflect specificity
+            logger.info(f"Starting Grill'd-specific transformation for {len(data)} items from site '{site_name}'")
 
-        for item in data:
-            raw_address = item.get("address")
-            business_name = item.get("name", "Unknown Name")
+            for item in data:
+                raw_address = item.get("address")
+                business_name = item.get("name", "Unknown Name")
 
-            if not raw_address:
-                logger.warning(f"Item missing 'address' field, skipping: {business_name}")
-                continue
+                if not raw_address:
+                    logger.warning(f"Grill'd item missing 'address' field, skipping: {business_name}")
+                    continue
 
-            # Call the main refactored parsing function
-            parsed_address_parts = parse_australian_address(raw_address)
+                # Call the parsing function (can keep internal name or rename to parse_grilld_address)
+                parsed_address_parts = parse_grilld_address(raw_address) # Renamed internal call
 
-            try:
-                location = TransformedLocation(
-                    business_name=business_name,
-                    street_address=parsed_address_parts["street_address"],
-                    suburb=parsed_address_parts["suburb"],
-                    state=parsed_address_parts["state"],
-                    postcode=parsed_address_parts["postcode"],
-                    drive_thru=item.get("drive_thru", False),
-                    shopping_centre_name=parsed_address_parts["shopping_centre_name"],
-                    source_url=item.get("source_url"),
-                    source=site_name,
-                    business_id=generate_business_id(business_name, raw_address)
-                )
-                transformed_data.append(location.dict())
+                try:
+                    # Use the STANDARD Pydantic model for output
+                    location = TransformedLocation(
+                        business_name=business_name,
+                        street_address=parsed_address_parts["street_address"],
+                        suburb=parsed_address_parts["suburb"],
+                        state=parsed_address_parts["state"],
+                        postcode=parsed_address_parts["postcode"],
+                        drive_thru=item.get("drive_thru", False),
+                        shopping_centre_name=parsed_address_parts["shopping_centre_name"],
+                        source_url=item.get("source_url"),
+                        source=site_name, # Source is 'grilld_restaurants' or similar from config
+                        business_id=generate_business_id(business_name, raw_address)
+                    )
+                    transformed_data.append(location.dict())
 
-            except ValidationError as e:
-                logger.error(f"Pydantic validation failed for item '{business_name}' (Address: {raw_address}): {e}", exc_info=False)
-            except Exception as e:
-                 logger.error(f"Unexpected error transforming item '{business_name}' (Address: {raw_address}): {e}", exc_info=True)
+                except ValidationError as e:
+                    logger.error(f"Pydantic validation failed for Grill'd item '{business_name}' (Address: {raw_address}): {e}", exc_info=False)
+                except Exception as e:
+                     logger.error(f"Unexpected error transforming Grill'd item '{business_name}' (Address: {raw_address}): {e}", exc_info=True)
 
-        # Reporting logic remains the same
-        successful_parses = sum(1 for item in transformed_data if item.get("suburb") and item.get("state"))
-        # Recalculate failed parses based on input data length if transformation itself can fail
-        valid_input_count = len([item for item in data if item.get("address")]) # Count items that had an address to begin with
-        failed_parses = valid_input_count - successful_parses
-        logger.info(f"Finished transformation. Produced {len(transformed_data)} items. Successful address parses (Suburb/State found): {successful_parses}, Failed/Fallback on valid inputs: {failed_parses}")
-        return transformed_data
+            # Reporting logic remains the same
+            successful_parses = sum(1 for item in transformed_data if item.get("suburb") and item.get("state"))
+            valid_input_count = len([item for item in data if item.get("address")])
+            failed_parses = valid_input_count - successful_parses
+            logger.info(f"Finished Grill'd transformation. Produced {len(transformed_data)} items. Successful address parses: {successful_parses}, Failed/Fallback: {failed_parses}")
+            return transformed_data

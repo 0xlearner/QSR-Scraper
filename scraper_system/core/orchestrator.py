@@ -18,7 +18,7 @@ PLUGIN_MAP = {
     # Parsers
     "GrilldParser": "scraper_system.plugins.parsers.grilld_parser.GrilldParser",
     # Transformers <--- ADDED
-    "AddressParserTransformer": "scraper_system.plugins.transformers.address_transformer.AddressParserTransformer",
+    "GrilldAddressTransformer": "scraper_system.plugins.transformers.grilld_address_transformer.GrilldAddressTransformer",
     # Storage
     "JSONStorage": "scraper_system.plugins.storage.json_storage.JSONStorage",
 }

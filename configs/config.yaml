@@ -10,7 +10,7 @@ websites:
       - https://grilld.com.au/restaurants # The main listing page
     fetcher: AsyncHTTPXFetcher # Used for the initial fetch AND detail fetches
     parser: GrilldParser # Use the custom parser
-    transformer: AddressParserTransformer # <--- Specify the transformer
+    transformer: GrilldAddressTransformer # <--- Specify the transformer
     storage: [JSONStorage] # Store the results
     config:
       # Options for BOTH initial and detail fetches (unless overridden)
