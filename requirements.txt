@@ -3,4 +3,6 @@ selectolax
 pyaml
 aiofiles
 pydantic
-usaddress
+aiohttp
+numpy
+python-dotenv

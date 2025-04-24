@@ -3,30 +3,161 @@ global_settings:
   max_concurrent_workers: 5 # Max concurrent website tasks
   log_level: INFO # Logging level (DEBUG, INFO, WARNING, ERROR)
 websites:
-  # Add Grill'd using the custom parser
   grilld_restaurants:
     enabled: true
     start_urls:
       - https://grilld.com.au/restaurants # The main listing page
     fetcher: AsyncHTTPXFetcher # Used for the initial fetch AND detail fetches
     parser: GrilldParser # Use the custom parser
-    transformer: GrilldAddressTransformer # <--- Specify the transformer
+    transformer: AddressTransformer
     storage: [JSONStorage] # Store the results
     config:
       # Options for BOTH initial and detail fetches (unless overridden)
       fetcher_options:
         headers:
-          User-Agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
-          # Add any other headers Grill'd might require
-        timeout: 25
+          User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+        timeout: 30
+      transformer_options:
+        api_key: ${GEOAPIFY_API_KEY}
       # Optional: Define different options specifically for detail page fetches
       # detail_fetcher_options:
       #   timeout: 15
       #   headers: ...
 
-      # parser_options are ignored by GrilldParser (unless you specifically code it to use them)
+      # parser_options are ignored by GrilldParser (unless specifically code it to use them)
       # parser_options: {} # No need for item_selector or data_selectors here
 
       storage_options:
         JSONStorage:
           output_file: "data/grilld_locations.jsonl"
+
+  guzman_y_gomez:
+    enabled: true
+    start_urls:
+      - https://www.guzmanygomez.com.au/locations/
+    fetcher: AsyncHTTPXFetcher
+    parser: GYGParser
+    transformer: AddressTransformer
+    storage: [JSONStorage]
+    config:
+      fetcher_options:
+        headers:
+          User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+        timeout: 30
+      transformer_options:
+        api_key: ${GEOAPIFY_API_KEY}
+      storage_options:
+        JSONStorage:
+          output_file: "data/gyg_locations.jsonl"
+
+  eljannah:
+    enabled: true
+    start_urls:
+      - https://eljannah.com.au/locations/
+    fetcher: AsyncHTTPXFetcher
+    parser: EljannahParser
+    transformer: AddressTransformer
+    storage: [JSONStorage]
+    config:
+      fetcher_options:
+        headers:
+          User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+        timeout: 30
+      transformer_options:
+        api_key: ${GEOAPIFY_API_KEY}
+      storage_options:
+        JSONStorage:
+          output_file: "data/eljannah_locations.jsonl"
+
+  kfc_au:
+    enabled: true
+    # start_urls: # Not needed by KfcParser
+    fetcher: AsyncHTTPXFetcher
+    parser: KfcParser
+    transformer: AddressTransformer
+    storage:
+      - JSONStorage
+    config: # Site-specific configuration passed down to plugins
+      fetcher_options:
+        # --- Standard Fetcher Options (applied generally, can be overridden by api_settings) ---
+        timeout: 90
+        # --- ScraperAPI Configuration (if used) ---
+        use_scraperapi: false # Set to false due to low google success rates for now.
+        scraperapi_key: ${SCRAPERAPI_KEY}
+        scraperapi_options: # Optional dictionary for extra ScraperAPI params
+          country_code: "au" # Example: Request Australian IPs
+          # render: "true"                     # Example: Uncomment to enable JS rendering (slower, costs more credits)
+          # premium: "true"                    # Example: Uncomment to use premium proxies (if needed, costs more)
+          keep_headers: "true" # Example: Force ScraperAPI to forward headers defined above/in api_settings
+
+      parser_options: # Options specific to the KfcParser logic
+        grid_rows: 5 # Increased grid density
+        grid_cols: 5 # Increased grid density
+        search_radius_km: 50
+        search_query: "KFC"
+
+      api_settings: # Settings specific to the Google Maps API calls made by KfcParser
+        # No URL needed here as it's constructed dynamically
+        headers: # Headers specific to the Google Maps search request
+          accept: "*/*"
+          accept-language: "en-US,en;q=0.9"
+          downlink: "6.2"
+          referer: "https://www.google.com/"
+          rtt: "100"
+          sec-ch-ua: '"Google Chrome";v="135", "Not-A.Brand";v="8", "Chromium";v="135"'
+          sec-ch-ua-mobile: "?0"
+          sec-ch-ua-platform: '"Linux"'
+          sec-fetch-dest: "empty"
+          sec-fetch-mode: "cors"
+          sec-fetch-site: "same-origin"
+          user-agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36" # Can override fetcher_options one if needed
+          x-client-data: "CJW2yQEIpLbJAQipncoBCODhygEIlKHLAQiVo8sBCIegzQEIvNXOAQj8284BCLnnzgEIlejOAQjT7c4BGKjmzgEYqerOAQ==" # Highly dynamic, likely safer to omit
+          x-maps-diversion-context-bin: "CAE=" # Dynamic, likely safer to omit
+
+      transformer_options:
+        api_key: ${GEOAPIFY_API_KEY}
+      storage_options:
+        JSONStorage:
+          output_file: "data/kfc_locations.jsonl"
+
+  noodlebox:
+    enabled: true
+    # start_urls are ignored by NoodleboxParser, but keep one for the loop structure
+    start_urls:
+      - https://www.noodlebox.com.au/locations # This URL isn't fetched by the parser itself
+    fetcher: AsyncHTTPXFetcher # Required for instantiation
+    parser: NoodleboxParser
+    transformer: AddressTransformer
+    storage:
+      - JSONStorage
+    config: # Site-specific config passed to plugins
+      fetcher_options: # Global options for the fetcher
+        timeout: 45
+        # Add any global headers if needed, API-specific ones are below
+      parser_options: {} # No specific options needed for NoodleboxParser itself
+      api_settings: # Settings specific to the Noodlebox API call
+        url: "https://www.noodlebox.com.au/data/locations"
+        headers:
+          accept: "application/json, text/javascript, */*; q=0.01"
+          accept-language: "en-US,en;q=0.9"
+          origin: "https://www.noodlebox.com.au"
+          priority: "u=1, i"
+          referer: "https://www.noodlebox.com.au/locations"
+          sec-ch-ua: '"Brave";v="135", "Not-A.Brand";v="8", "Chromium";v="135"'
+          sec-ch-ua-mobile: "?0"
+          sec-ch-ua-platform: '"Linux"'
+          sec-fetch-dest: "empty"
+          sec-fetch-mode: "cors"
+          sec-fetch-site: "same-origin"
+          sec-gpc: "1"
+          user-agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
+          x-requested-with: "XMLHttpRequest"
+        payload: {} # Empty payload for this API call
+      transformer_options:
+        api_key: ${GEOAPIFY_API_KEY}
+      storage_options:
+        JSONStorage:
+          output_file: "data/noodlebox_locations.jsonl"

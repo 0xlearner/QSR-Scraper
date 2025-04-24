@@ -3,6 +3,10 @@ import logging
 import yaml # PyYAML
 from scraper_system.core.orchestrator import Orchestrator
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 CONFIG_PATH = "configs/config.yaml"
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -16,13 +20,16 @@ def setup_logging(log_level_str: str = "INFO"):
 
 
 def load_config(path: str) -> dict:
-    """Loads YAML configuration file."""
+    """Loads YAML configuration file and processes environment variables."""
     try:
         with open(path, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
             if config is None:
                 logging.error(f"Configuration file {path} is empty or invalid.")
                 return {}
+
+            # Process the loaded config to replace env var placeholders
+            config = process_env_vars(config)
             return config
     except FileNotFoundError:
         logging.error(f"Configuration file not found at {path}")
@@ -33,6 +40,22 @@ def load_config(path: str) -> dict:
     except Exception as e:
         logging.error(f"Failed to load config from {path}: {e}")
         return {}
+
+def process_env_vars(item):
+    """Recursively process dictionary values to replace ${ENV_VAR} patterns with actual env values."""
+    if isinstance(item, dict):
+        return {k: process_env_vars(v) for k, v in item.items()}
+    elif isinstance(item, list):
+        return [process_env_vars(i) for i in item]
+    elif isinstance(item, str) and item.startswith("${") and item.endswith("}"):
+        # Extract the environment variable name
+        env_var = item[2:-1]
+        # Get the environment variable value, with optional default
+        if ":" in env_var:
+            env_var, default = env_var.split(":", 1)
+            return os.environ.get(env_var, default)
+        return os.environ.get(env_var, f"ENV_{env_var}_NOT_FOUND")
+    return item
 
 async def main():
     """Main execution function."""

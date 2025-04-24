@@ -1,12 +1,13 @@
 import logging
 import asyncio
 import importlib
-import inspect
-from typing import Dict, Any, List, Type, Optional
+from typing import Dict, Any, List, Type, Optional, Tuple
+
 from scraper_system.interfaces.fetcher_interface import FetcherInterface
 from scraper_system.interfaces.parser_interface import ParserInterface
 from scraper_system.interfaces.transformer_interface import TransformerInterface
 from scraper_system.interfaces.storage_interface import StorageInterface
+from scraper_system.plugins.parsers.kfc_parser import KfcParser
 
 logger = logging.getLogger(__name__)
 
@@ -17,21 +18,28 @@ PLUGIN_MAP = {
     "AsyncHTTPXFetcher": "scraper_system.plugins.fetchers.http_fetcher.AsyncHTTPXFetcher",
     # Parsers
     "GrilldParser": "scraper_system.plugins.parsers.grilld_parser.GrilldParser",
-    # Transformers <--- ADDED
-    "GrilldAddressTransformer": "scraper_system.plugins.transformers.grilld_address_transformer.GrilldAddressTransformer",
+    "GYGParser": "scraper_system.plugins.parsers.gyg_parser.GYGParser",
+    "EljannahParser": "scraper_system.plugins.parsers.eljannah_parser.EljannahParser",
+    "KfcParser": "scraper_system.plugins.parsers.kfc_parser.KfcParser",
+    "NoodleboxParser": "scraper_system.plugins.parsers.noodlebox_parser.NoodleboxParser",
+    # Transformers
+    "AddressTransformer": "scraper_system.plugins.transformers.address_transformer.AddressTransformer",
     # Storage
     "JSONStorage": "scraper_system.plugins.storage.json_storage.JSONStorage",
 }
 
+
 def get_plugin_class(plugin_name: str) -> Optional[Type]:
     """Dynamically imports and returns a plugin class."""
-    if not plugin_name: # Handle cases where a plugin (like transformer) might be optional
+    if (
+        not plugin_name
+    ):  # Handle cases where a plugin (like transformer) might be optional
         return None
     if plugin_name not in PLUGIN_MAP:
         logger.error(f"Plugin '{plugin_name}' not found in PLUGIN_MAP.")
         return None
 
-    module_path, class_name = PLUGIN_MAP[plugin_name].rsplit('.', 1)
+    module_path, class_name = PLUGIN_MAP[plugin_name].rsplit(".", 1)
     try:
         module = importlib.import_module(module_path)
         plugin_class = getattr(module, class_name)
@@ -39,9 +47,11 @@ def get_plugin_class(plugin_name: str) -> Optional[Type]:
     except ImportError:
         logger.error(f"Failed to import module {module_path} for plugin {plugin_name}.")
     except AttributeError:
-        logger.error(f"Failed to find class {class_name} in module {module_path} for plugin {plugin_name}.")
+        logger.error(
+            f"Failed to find class {class_name} in module {module_path} for plugin {plugin_name}."
+        )
     except Exception as e:
-         logger.error(f"Error loading plugin {plugin_name}: {e}")
+        logger.error(f"Error loading plugin {plugin_name}: {e}")
     return None
 
 
@@ -49,196 +59,437 @@ class Orchestrator:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.global_settings = config.get("global_settings", {})
-        self.max_concurrent_workers = self.global_settings.get("max_concurrent_workers", 5) # Default concurrency
+        self.max_concurrent_workers = self.global_settings.get(
+            "max_concurrent_workers", 5
+        )  # Default concurrency
 
     async def _scrape_url(
         self,
         url: str,
-        site_name: str, # Pass site_name for context
+        site_name: str,
         site_config: Dict[str, Any],
         fetcher: FetcherInterface,
         parser: ParserInterface,
-        transformer: Optional[TransformerInterface], # Transformer is optional
-        storage_plugins: List[StorageInterface]
-        ):
-            """Scrapes a single URL, parses, transforms, and stores the data."""
-            logger.info(f"Starting scrape process for entry URL: {url} (Site: {site_name})")
-            fetcher_config = site_config.get("config", {}).get("fetcher_options", {})
-            # Pass the *entire* site config to the parser, it might need fetcher_options etc.
-            parser_config = site_config.get("config", {})
-            transformer_config = site_config.get("config", {}).get("transformer_options", {}) # Added
-            storage_configs = site_config.get("config", {}).get("storage_options", {})
+        transformer: Optional[TransformerInterface],
+        storage_plugins: List[StorageInterface],
+    ):
+        """
+        Scrapes a single URL, parses, transforms, and stores the data.
+        """
+        logger.info(f"Starting scrape process for entry URL: {url} (Site: {site_name})")
+        parser_config = site_config.get("config", {})
+        transformer_config = site_config.get("config", {}).get(
+            "transformer_options", {}
+        )
+        storage_configs = site_config.get("config", {}).get("storage_options", {})
 
-            # --- Initial Fetch ---
-            initial_content, initial_content_type = await fetcher.fetch(url, fetcher_config)
-            if initial_content is None:
-                logger.warning(f"Failed to fetch initial content for {url}, skipping.")
+        # Add the initial fetch here
+        fetcher_config = site_config.get("config", {}).get("fetcher_options", {})
+        content, content_type, status_code = await fetcher.fetch(url, fetcher_config)
+
+        if not content:
+            logger.error(
+                f"Failed to fetch initial content from {url} for site '{site_name}' (Status: {status_code})"
+            )
+            return
+
+        # --- Parse ---
+        try:
+            parsed_data = await parser.parse(
+                content=content, content_type=content_type, config=parser_config
+            )
+            if not parsed_data:
+                logger.info(
+                    f"Parser {parser.__class__.__name__} found no data for site '{site_name}'."
+                )
                 return
+            logger.info(
+                f"Parser {parser.__class__.__name__} returned {len(parsed_data)} raw items for site '{site_name}'"
+            )
+        except Exception as e:
+            logger.error(
+                f"Parser execution failed for site '{site_name}': {e}", exc_info=True
+            )
+            return
 
-            # --- Parse ---
+        # --- Transform (if transformer is configured) ---
+        data_to_store = parsed_data  # Default to parsed data
+        if transformer:
             try:
-                # Pass the *full* config dict to parse, GrilldParser uses it
-                parsed_data = await parser.parse(initial_content, initial_content_type, parser_config)
-                if not parsed_data:
-                    logger.info(f"Parser found no data starting from {url}.")
-                    return # Nothing to transform or store
-                logger.info(f"Parser returned {len(parsed_data)} raw items starting from {url}")
+                transformed_data = await transformer.transform(
+                    parsed_data, transformer_config, site_name
+                )
+                if not transformed_data:
+                    logger.info(
+                        f"Transformer returned no data for items from site '{site_name}'."
+                    )
+                    return
+                logger.info(
+                    f"Transformer processed data, resulting in {len(transformed_data)} items from site '{site_name}'"
+                )
+                data_to_store = transformed_data
             except Exception as e:
-                 logger.error(f"Parser execution failed starting from {url}: {e}", exc_info=True)
-                 return
+                logger.error(
+                    f"Transformer execution failed for data from site '{site_name}': {e}",
+                    exc_info=True,
+                )
+                return
+        else:
+            logger.debug(
+                f"No transformer configured for site '{site_name}', using raw parsed data."
+            )
 
-            # --- Transform (if transformer is configured) ---
-            if transformer:
-                try:
-                    transformed_data = await transformer.transform(parsed_data, transformer_config, site_name)
-                    if not transformed_data:
-                        logger.info(f"Transformer returned no data for items from {url}.")
-                        return # Nothing to store after transformation
-                    logger.info(f"Transformer processed data, resulting in {len(transformed_data)} items from {url}")
-                    data_to_store = transformed_data
-                except Exception as e:
-                     logger.error(f"Transformer execution failed for data from {url}: {e}", exc_info=True)
-                     return # Stop processing this batch on transformer error
+        # --- Store ---
+        if not data_to_store:
+            logger.warning(
+                f"No data left to store for site '{site_name}' after parsing/transformation."
+            )
+            return
+
+        store_tasks = []
+        for storage in storage_plugins:
+            storage_name = storage.__class__.__name__
+            specific_storage_config = storage_configs.get(storage_name, {})
+            store_tasks.append(
+                asyncio.ensure_future(
+                    storage.save(data_to_store, specific_storage_config)
+                )
+            )
+
+        if store_tasks:
+            results = await asyncio.gather(*store_tasks, return_exceptions=True)
+            for idx, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.error(
+                        f"Storage plugin {storage_plugins[idx].__class__.__name__} failed: {result}",
+                        exc_info=False,
+                    )
+            logger.info(f"Finished storing data originating from site: {site_name}")
+        else:
+            logger.warning(
+                f"No storage plugins available to store data for site '{site_name}'"
+            )
+
+    # --- Refactored Helper Methods ---
+
+    def _load_and_validate_plugins(
+        self, site_name: str, site_config: Dict[str, Any]
+    ) -> Optional[
+        Tuple[
+            FetcherInterface,
+            ParserInterface,
+            Optional[TransformerInterface],
+            List[StorageInterface],
+        ]
+    ]:
+        """Loads and validates plugin classes for a site."""
+        fetcher_name = site_config.get("fetcher")
+        parser_name = site_config.get("parser")
+        transformer_name = site_config.get("transformer")  # Optional
+        storage_names = site_config.get("storage", [])
+
+        # Get plugin classes
+        fetcher_cls = get_plugin_class(fetcher_name)
+        parser_cls = get_plugin_class(parser_name)
+        transformer_cls = get_plugin_class(transformer_name)
+
+        if not all([fetcher_cls, parser_cls]):
+            logger.error(f"Required plugins missing for site '{site_name}'")
+            return None
+
+        try:
+            # Initialize plugins with their configurations
+            fetcher_config = site_config.get("config", {}).get("fetcher_options", {})
+            fetcher = fetcher_cls(fetcher_config)  # Pass config during initialization
+            parser = parser_cls(fetcher)  # Pass fetcher to parser
+
+            # Initialize transformer if configured
+            transformer = None
+            if transformer_cls:
+                transformer = self._instantiate_transformer(
+                    site_name, site_config, transformer_cls
+                )
+                if transformer is None:
+                    logger.error(
+                        f"Failed to initialize transformer for site '{site_name}'"
+                    )
+                    return None
+
+            # Initialize storage plugins
+            storage_plugins = []
+            for storage_name in storage_names:
+                storage_cls = get_plugin_class(storage_name)
+                if storage_cls:
+                    storage_plugins.append(storage_cls())
+                else:
+                    logger.warning(
+                        f"Storage plugin '{storage_name}' not found for site '{site_name}'"
+                    )
+
+            return fetcher, parser, transformer, storage_plugins
+
+        except Exception as e:
+            logger.error(
+                f"Failed to initialize plugins for site '{site_name}': {e}",
+                exc_info=True,
+            )
+            return None
+
+    def _instantiate_transformer(
+        self,
+        site_name: str,
+        site_config: Dict[str, Any],
+        transformer_cls: Type[TransformerInterface],
+    ) -> Optional[TransformerInterface]:
+        """Instantiates the transformer plugin, handling API key logic."""
+        try:
+            transformer_config = site_config.get("config", {}).get(
+                "transformer_options", {}
+            )
+            api_key = transformer_config.get("api_key")
+
+            # Check if the transformer expects an api_key in its __init__
+            import inspect
+
+            init_signature = inspect.signature(transformer_cls.__init__)
+            takes_api_key = "api_key" in init_signature.parameters
+
+            instance = None
+            if takes_api_key:
+                if api_key:
+                    logger.info(
+                        f"Instantiating transformer {transformer_cls.__name__} with API key for '{site_name}'."
+                    )
+                    instance = transformer_cls(api_key=api_key)
+                else:
+                    # Transformer expects api_key but none provided in config
+                    logger.error(
+                        f"Transformer {transformer_cls.__name__} requires an 'api_key' in transformer_options for site '{site_name}', but none was found. Cannot instantiate."
+                    )
+                    return None
             else:
-                 # If no transformer, store the raw parsed data
-                 logger.debug(f"No transformer configured for site '{site_name}', storing raw parsed data.")
-                 data_to_store = parsed_data
+                if api_key:
+                    logger.warning(
+                        f"API key provided for transformer {transformer_cls.__name__} in site '{site_name}', but the transformer does not accept an 'api_key' argument. Instantiating without it."
+                    )
+                else:
+                    logger.info(
+                        f"Instantiating transformer {transformer_cls.__name__} without API key for '{site_name}'."
+                    )
+                instance = transformer_cls()
 
+            if instance:
+                logger.info(
+                    f"Successfully instantiated transformer: {transformer_cls.__name__} for '{site_name}'"
+                )
+            return instance
 
-            # --- Store ---
-            if not data_to_store:
-                 logger.warning(f"No data left to store for {url} after parsing/transformation.")
-                 return
+        except TypeError as e:
+            logger.error(
+                f"TypeError instantiating Transformer {transformer_cls.__name__} for site '{site_name}': {e}. Check config and class __init__.",
+                exc_info=True,
+            )
+            return None
+        except Exception as e:
+            logger.error(
+                f"Failed to instantiate Transformer {transformer_cls.__name__} for site '{site_name}': {e}",
+                exc_info=True,
+            )
+            return None
 
-            store_tasks = []
-            for storage in storage_plugins:
-                 storage_name = storage.__class__.__name__
-                 specific_storage_config = storage_configs.get(storage_name, {})
-                 store_tasks.append(storage.save(data_to_store, specific_storage_config))
+    def _instantiate_storage_plugins(
+        self, site_name: str, storage_classes: List[Tuple[str, Type[StorageInterface]]]
+    ) -> List[StorageInterface]:
+        """Instantiates storage plugins, logging errors for failed ones."""
+        instances = []
+        for name, cls in storage_classes:
+            try:
+                instances.append(cls())
+            except Exception as e:
+                logger.error(
+                    f"Failed to instantiate Storage plugin {cls.__name__} (config name: {name}) for site '{site_name}': {e}",
+                    exc_info=True,
+                )
+        return instances
 
-            await asyncio.gather(*store_tasks)
-            logger.info(f"Finished storing data originating from entry URL: {url}")
+    def _instantiate_plugins(
+        self,
+        site_name: str,
+        site_config: Dict[str, Any],
+        fetcher_cls: Type[FetcherInterface],
+        parser_cls: Type[ParserInterface],
+        transformer_cls: Optional[Type[TransformerInterface]],
+        storage_classes: List[Tuple[str, Type[StorageInterface]]],
+    ) -> Optional[
+        Tuple[
+            FetcherInterface,
+            ParserInterface,
+            Optional[TransformerInterface],
+            List[StorageInterface],
+        ]
+    ]:
+        """Instantiates the loaded plugin classes using helper methods."""
+        fetcher = None
+        parser = None
+        transformer_instance = None
+        storage_instances = []
 
+        try:
+            fetcher = fetcher_cls()
+        except Exception as e:
+            logger.error(
+                f"Failed to instantiate Fetcher {fetcher_cls.__name__} for site '{site_name}': {e}",
+                exc_info=True,
+            )
+            return None
 
-    async def _scrape_website(self, site_name: str, site_config: Dict[str, Any]):
+        try:
+            # Pass the fetcher instance to the parser constructor
+            parser = parser_cls(fetcher=fetcher)
+        except Exception as e:
+            logger.error(
+                f"Failed to instantiate Parser {parser_cls.__name__} for site '{site_name}': {e}",
+                exc_info=True,
+            )
+            return None  # Parser instantiation is critical
+
+        if transformer_cls:
+            transformer_instance = self._instantiate_transformer(
+                site_name, site_config, transformer_cls
+            )
+            if transformer_instance is None:
+                logger.error(
+                    f"Transformer instantiation failed for site '{site_name}', skipping site."
+                )
+                return None  # Transformer instantiation is critical if specified
+
+        storage_instances = self._instantiate_storage_plugins(
+            site_name, storage_classes
+        )
+
+        if not storage_classes:
+            logger.info(f"No storage plugins configured for '{site_name}'.")
+        elif not storage_instances:
+            logger.warning(
+                f"No storage plugins successfully instantiated for '{site_name}'. Data will not be saved."
+            )
+
+        return fetcher, parser, transformer_instance, storage_instances
+
+    async def _scrape_website(
+        self,
+        site_name: str,
+        site_config: Dict[str, Any],
+        fetcher: FetcherInterface,
+        parser: ParserInterface,
+        transformer: Optional[TransformerInterface],
+        storage_plugins: List[StorageInterface],
+    ):
+        """Scrapes a single website configuration, handling all URLs and storing results."""
         logger.info(f"Starting scrape process for website: {site_name}")
 
-        # --- Load Plugins ---
-        fetcher_cls = get_plugin_class(site_config.get("fetcher"))
-        parser_cls = get_plugin_class(site_config.get("parser"))
-        transformer_cls = get_plugin_class(site_config.get("transformer")) # Load transformer class (optional)
-        storage_names = site_config.get("storage", [])
-        storage_classes = [(name, get_plugin_class(name)) for name in storage_names]
+        # Special handling for KfcParser
+        if isinstance(parser, KfcParser):
+            try:
+                parser_config = site_config.get("config", {})
+                parsed_data = await parser.parse(
+                    content=None, content_type=None, config=parser_config
+                )
 
-        # Basic validation
-        if not fetcher_cls:
-            logger.error(f"Fetcher plugin '{site_config.get('fetcher')}' not loaded for '{site_name}'. Skipping.")
-            return
-        if not parser_cls:
-            logger.error(f"Parser plugin '{site_config.get('parser')}' not loaded for '{site_name}'. Skipping.")
-            return
-        # Transformer is optional, so only log warning if specified but not loaded
-        if site_config.get("transformer") and not transformer_cls:
-             logger.error(f"Transformer plugin '{site_config.get('transformer')}' specified but not loaded for '{site_name}'. Skipping.")
-             return
-        if not all(cls for _, cls in storage_classes):
-                logger.warning(f"One or more storage plugins failed to load for website '{site_name}'. Continuing without them.")
-                storage_classes = [(name, cls) for name, cls in storage_classes if cls] # Filter out failed ones
+                if parsed_data:
+                    # Handle transformation if configured
+                    data_to_store = parsed_data
+                    if transformer:
+                        transformer_config = parser_config.get(
+                            "transformer_options", {}
+                        )
+                        data_to_store = await transformer.transform(
+                            parsed_data, transformer_config, site_name
+                        )
 
-        # --- Instantiate Plugins ---
-        fetcher_instance: FetcherInterface = fetcher_cls()
-        storage_instances: List[StorageInterface] = [cls() for name, cls in storage_classes if cls]
+                    # Store the data
+                    if data_to_store:
+                        storage_configs = parser_config.get("storage_options", {})
+                        for storage in storage_plugins:
+                            storage_config = storage_configs.get(
+                                storage.__class__.__name__, {}
+                            )
+                            await storage.save(data_to_store, storage_config)
 
-        # Instantiate Parser, potentially injecting the fetcher
-        parser_instance: ParserInterface
-        try:
-            parser_init_signature = inspect.signature(parser_cls.__init__)
-            parser_params = parser_init_signature.parameters
-            if 'fetcher' in parser_params:
-                    logger.debug(f"Injecting fetcher into {parser_cls.__name__}")
-                    parser_instance = parser_cls(fetcher=fetcher_instance)
-            else:
-                    parser_instance = parser_cls()
-        except Exception as e:
-             logger.error(f"Failed to instantiate Parser {parser_cls.__name__}: {e}", exc_info=True)
-             return
+                return
+            except Exception as e:
+                logger.error(
+                    f"Error processing KFC parser for site '{site_name}': {e}",
+                    exc_info=True,
+                )
+                return
 
-        # Instantiate Transformer (if configured)
-        transformer_instance: Optional[TransformerInterface] = None
-        if transformer_cls:
-             try:
-                 # Check if transformer needs injection (less common, but possible)
-                 # transformer_init_signature = inspect.signature(transformer_cls.__init__)
-                 # transformer_params = transformer_init_signature.parameters
-                 # Add injection logic here if needed later
-                 transformer_instance = transformer_cls()
-                 logger.info(f"Instantiated transformer: {transformer_cls.__name__}")
-             except Exception as e:
-                 logger.error(f"Failed to instantiate Transformer {transformer_cls.__name__}: {e}", exc_info=True)
-                 # Decide if we should continue without transformation or stop
-                 logger.warning(f"Proceeding without transformation for site '{site_name}'.")
-                 # transformer_instance = None # Explicitly set to None
-
-
-        if not storage_instances:
-                logger.warning(f"No valid storage plugins loaded or instantiated for '{site_name}'. Data will not be saved.")
-
+        # Regular handling for other parsers
         start_urls = site_config.get("start_urls", [])
         if not start_urls:
-            logger.warning(f"No 'start_urls' defined for website '{site_name}'.")
+            logger.warning(f"No start URLs configured for site: {site_name}")
             return
 
-        # --- Create and Run Tasks ---
-        tasks = []
         for url in start_urls:
-            # Pass all required instances to _scrape_url
-            tasks.append(self._scrape_url(
-                 url,
-                 site_name, # Pass site name
-                 site_config,
-                 fetcher_instance,
-                 parser_instance,
-                 transformer_instance, # Pass transformer (can be None)
-                 storage_instances
-                 ))
+            await self._scrape_url(
+                url=url,
+                site_name=site_name,
+                site_config=site_config,
+                fetcher=fetcher,
+                parser=parser,
+                transformer=transformer,
+                storage_plugins=storage_plugins,
+            )
 
-        await asyncio.gather(*tasks)
         logger.info(f"Finished scrape process for website: {site_name}")
 
-
     async def run(self):
-        """Runs the scraping process for all configured websites."""
+        """Main entry point to run the scraper orchestrator."""
         logger.info("Orchestrator starting...")
+        websites = self.config.get("websites", {})
+        website_tasks = []
         semaphore = asyncio.Semaphore(self.max_concurrent_workers)
 
-        website_tasks = []
-        websites = self.config.get("websites", {})
-
-        if not websites:
-            logger.warning("No websites configured in the 'websites' section.")
-            return
-
         async def throttled_scrape(site_name, site_config):
-             # Wrap _scrape_website call in semaphore
-             # Add try/except block here to catch errors within a specific site's processing
-             # without stopping the entire orchestrator run.
-             try:
-                 async with semaphore:
-                    logger.debug(f"Acquired semaphore for site: {site_name}")
-                    await self._scrape_website(site_name, site_config)
-                    logger.debug(f"Released semaphore for site: {site_name}")
-             except Exception as e:
-                 # Catch errors not handled deeper down (e.g., plugin loading issues)
-                 logger.error(f"Unhandled error during processing of site '{site_name}': {e}", exc_info=True)
+            async with semaphore:
+                logger.debug(f"Acquired semaphore for site: {site_name}")
+                try:
+                    # Load and validate plugins first
+                    plugin_instances = self._load_and_validate_plugins(
+                        site_name, site_config
+                    )
+                    if plugin_instances is None:
+                        logger.error(
+                            f"Failed to load plugins for site '{site_name}'. Skipping."
+                        )
+                        return
 
+                    fetcher, parser, transformer, storage_plugins = plugin_instances
+
+                    # Now call _scrape_website with all required arguments
+                    await self._scrape_website(
+                        site_name=site_name,
+                        site_config=site_config,
+                        fetcher=fetcher,
+                        parser=parser,
+                        transformer=transformer,
+                        storage_plugins=storage_plugins,
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Unhandled error during processing of site '{site_name}': {e}",
+                        exc_info=True,
+                    )
+                finally:
+                    logger.debug(f"Released semaphore for site: {site_name}")
 
         for site_name, site_config in websites.items():
             if not site_config.get("enabled", True):
-                 logger.info(f"Website '{site_name}' is disabled. Skipping.")
-                 continue
-            # Pass site_name and config to the throttled function
+                logger.info(f"Website '{site_name}' is disabled. Skipping.")
+                continue
             website_tasks.append(throttled_scrape(site_name, site_config))
 
-        await asyncio.gather(*website_tasks)
+        if website_tasks:
+            await asyncio.gather(*website_tasks)
 
         logger.info("Orchestrator finished.")
