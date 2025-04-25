@@ -1,6 +1,5 @@
 import logging
 import asyncio
-import importlib
 from typing import Dict, Any, List, Type, Optional, Tuple
 
 from scraper_system.interfaces.fetcher_interface import FetcherInterface
@@ -8,51 +7,9 @@ from scraper_system.interfaces.parser_interface import ParserInterface
 from scraper_system.interfaces.transformer_interface import TransformerInterface
 from scraper_system.interfaces.storage_interface import StorageInterface
 from scraper_system.plugins.parsers.kfc_parser import KfcParser
+from scraper_system.core.plugin_factory import PluginFactory
 
 logger = logging.getLogger(__name__)
-
-# Simple plugin registry (can be made more sophisticated later)
-# Maps config names to actual plugin classes
-PLUGIN_MAP = {
-    # Fetchers
-    "AsyncHTTPXFetcher": "scraper_system.plugins.fetchers.http_fetcher.AsyncHTTPXFetcher",
-    # Parsers
-    "GrilldParser": "scraper_system.plugins.parsers.grilld_parser.GrilldParser",
-    "GYGParser": "scraper_system.plugins.parsers.gyg_parser.GYGParser",
-    "EljannahParser": "scraper_system.plugins.parsers.eljannah_parser.EljannahParser",
-    "KfcParser": "scraper_system.plugins.parsers.kfc_parser.KfcParser",
-    "NoodleboxParser": "scraper_system.plugins.parsers.noodlebox_parser.NoodleboxParser",
-    # Transformers
-    "AddressTransformer": "scraper_system.plugins.transformers.address_transformer.AddressTransformer",
-    # Storage
-    "JSONStorage": "scraper_system.plugins.storage.json_storage.JSONStorage",
-}
-
-
-def get_plugin_class(plugin_name: str) -> Optional[Type]:
-    """Dynamically imports and returns a plugin class."""
-    if (
-        not plugin_name
-    ):  # Handle cases where a plugin (like transformer) might be optional
-        return None
-    if plugin_name not in PLUGIN_MAP:
-        logger.error(f"Plugin '{plugin_name}' not found in PLUGIN_MAP.")
-        return None
-
-    module_path, class_name = PLUGIN_MAP[plugin_name].rsplit(".", 1)
-    try:
-        module = importlib.import_module(module_path)
-        plugin_class = getattr(module, class_name)
-        return plugin_class
-    except ImportError:
-        logger.error(f"Failed to import module {module_path} for plugin {plugin_name}.")
-    except AttributeError:
-        logger.error(
-            f"Failed to find class {class_name} in module {module_path} for plugin {plugin_name}."
-        )
-    except Exception as e:
-        logger.error(f"Error loading plugin {plugin_name}: {e}")
-    return None
 
 
 class Orchestrator:
@@ -62,6 +19,15 @@ class Orchestrator:
         self.max_concurrent_workers = self.global_settings.get(
             "max_concurrent_workers", 5
         )  # Default concurrency
+        self.plugin_factory = PluginFactory(config)
+
+    def _load_and_validate_plugins(self, site_name: str, site_config: Dict[str, Any]):
+            """Load and validate plugins using the plugin factory"""
+            try:
+                return self.plugin_factory.create_plugins_for_site(site_name, site_config)
+            except Exception as e:
+                logger.error(f"Failed to load plugins for site '{site_name}': {e}")
+                return None
 
     async def _scrape_url(
         self,
@@ -171,69 +137,6 @@ class Orchestrator:
             )
 
     # --- Refactored Helper Methods ---
-
-    def _load_and_validate_plugins(
-        self, site_name: str, site_config: Dict[str, Any]
-    ) -> Optional[
-        Tuple[
-            FetcherInterface,
-            ParserInterface,
-            Optional[TransformerInterface],
-            List[StorageInterface],
-        ]
-    ]:
-        """Loads and validates plugin classes for a site."""
-        fetcher_name = site_config.get("fetcher")
-        parser_name = site_config.get("parser")
-        transformer_name = site_config.get("transformer")  # Optional
-        storage_names = site_config.get("storage", [])
-
-        # Get plugin classes
-        fetcher_cls = get_plugin_class(fetcher_name)
-        parser_cls = get_plugin_class(parser_name)
-        transformer_cls = get_plugin_class(transformer_name)
-
-        if not all([fetcher_cls, parser_cls]):
-            logger.error(f"Required plugins missing for site '{site_name}'")
-            return None
-
-        try:
-            # Initialize plugins with their configurations
-            fetcher_config = site_config.get("config", {}).get("fetcher_options", {})
-            fetcher = fetcher_cls(fetcher_config)  # Pass config during initialization
-            parser = parser_cls(fetcher)  # Pass fetcher to parser
-
-            # Initialize transformer if configured
-            transformer = None
-            if transformer_cls:
-                transformer = self._instantiate_transformer(
-                    site_name, site_config, transformer_cls
-                )
-                if transformer is None:
-                    logger.error(
-                        f"Failed to initialize transformer for site '{site_name}'"
-                    )
-                    return None
-
-            # Initialize storage plugins
-            storage_plugins = []
-            for storage_name in storage_names:
-                storage_cls = get_plugin_class(storage_name)
-                if storage_cls:
-                    storage_plugins.append(storage_cls())
-                else:
-                    logger.warning(
-                        f"Storage plugin '{storage_name}' not found for site '{site_name}'"
-                    )
-
-            return fetcher, parser, transformer, storage_plugins
-
-        except Exception as e:
-            logger.error(
-                f"Failed to initialize plugins for site '{site_name}': {e}",
-                exc_info=True,
-            )
-            return None
 
     def _instantiate_transformer(
         self,
