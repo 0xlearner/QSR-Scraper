@@ -1,7 +1,9 @@
 import asyncio
 import json
 import logging
-from dataclasses import asdict, dataclass
+import re
+import hashlib
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urlparse, urlunparse, urlencode
 
@@ -9,6 +11,7 @@ import numpy as np
 
 from scraper_system.interfaces.fetcher_interface import FetcherInterface
 from scraper_system.interfaces.parser_interface import ParserInterface
+from scraper_system.models.location import TransformedLocation
 
 logger = logging.getLogger(__name__)
 
@@ -17,10 +20,14 @@ logger = logging.getLogger(__name__)
 class Place:
     """Internal representation of a parsed place before final conversion."""
 
-    address: str
     name: str
+    suburb: str
+    state: str
+    postcode: str
     drive_thru: bool
     source_url: str
+    street_address: str = None
+    shopping_centre: str = None
 
 
 AUSTRALIA_BOUNDS = {
@@ -119,11 +126,15 @@ def build_search_urls(
 
 
 def deduplicate_places(places: List[Place]) -> List[Place]:
-    """Remove duplicate places based on name and address."""
+    """Remove duplicate places based on name and source_url."""
     seen: Set[tuple] = set()
     unique_places: List[Place] = []
     for place in places:
-        place_key = (place.name.strip().lower(), place.address.strip().lower())
+        # Use name and source_url as the unique identifier
+        # Handle None values by using empty string as fallback
+        name = place.name.strip().lower() if place.name else ""
+        source_url = place.source_url.strip().lower() if place.source_url else ""
+        place_key = (name, source_url)
         if place_key not in seen:
             seen.add(place_key)
             unique_places.append(place)
@@ -144,6 +155,71 @@ def clean_url(url: str) -> str:
     except Exception as e:
         logger.error(f"Error cleaning URL {url}: {e}")
         return url  # Return original on error
+
+def clean_shopping_centre_name(shopping_centre: str) -> str:
+    """
+    Clean shopping centre name by removing shop numbers, unit numbers, etc.
+
+    Examples:
+    "Shop 47, Capalaba Park Shopping Centre," -> "Capalaba Park Shopping Centre"
+    "Unit 12A, Westfield Marion" -> "Westfield Marion"
+    """
+    if not shopping_centre:
+        return ""
+
+    # Remove leading shop/unit number patterns
+    patterns = [
+        r'^shop\s+\d+[A-Za-z]?\s*,\s*',  # Shop 47, or Shop 12B,
+        r'^unit\s+\d+[A-Za-z]?\s*,\s*',   # Unit 5, or Unit 8A,
+        r'^\d+[A-Za-z]?\s*,\s*',          # 12,
+        r'^shop\s+\d+[A-Za-z]?\s+',       # Shop 47 (without comma)
+        r'^unit\s+\d+[A-Za-z]?\s+',       # Unit 5 (without comma)
+        r'^[Ss]hop\s+[^,]+,\s*',          # Shop Name,
+        r'^[Ss]uite\s+\d+[A-Za-z]?\s*,\s*',  # Suite 101,
+        r'^[Kk]iosk\s+\d+[A-Za-z]?\s*,\s*',  # Kiosk 42,
+        r'^[Tt]enancy\s+\d+[A-Za-z]?\s*,\s*',  # Tenancy 7,
+    ]
+
+    result = shopping_centre.strip()
+    for pattern in patterns:
+        result = re.sub(pattern, '', result, flags=re.IGNORECASE)
+
+    # Remove trailing commas and whitespace
+    result = result.strip().rstrip(',').strip()
+
+    return result
+
+def transform_to_api_url(website_url: str) -> str:
+    """
+    Transform KFC website URL to API URL.
+
+    Example:
+    https://www.kfc.com.au/restaurants/kfc-capalaba-park-food-court/4157
+    ->
+    https://orderserv-kfc-apac-olo-api.yum.com/dev/v1/stores/details/kfc-capalaba-park-food-court/4157
+    """
+    if not website_url or "kfc.com.au" not in website_url:
+        return ""
+    try:
+        parsed = urlparse(website_url)
+        path_parts = parsed.path.strip("/").split("/")
+
+        # Check if we have the expected format with restaurant name and postal code
+        if len(path_parts) >= 2 and path_parts[0] == "restaurants":
+            restaurant_id = path_parts[1]
+            postal_code = path_parts[2] if len(path_parts) > 2 else ""
+
+            if postal_code:
+                api_url = f"https://orderserv-kfc-apac-olo-api.yum.com/dev/v1/stores/details/{restaurant_id}/{postal_code}"
+            else:
+                api_url = f"https://orderserv-kfc-apac-olo-api.yum.com/dev/v1/stores/details/{restaurant_id}"
+
+            logger.info(f"Transformed URL: {website_url} -> {api_url}")
+            return api_url
+    except Exception as e:
+        logger.error(f"Error transforming URL {website_url} to API URL: {e}")
+
+    return ""
 
 
 def get_nested_value(data: List | Dict, indexes: List[int]) -> Optional[Any]:
@@ -250,6 +326,77 @@ def is_australian_kfc_website(url: str) -> bool:
     return bool(url) and "kfc.com.au" in urlparse(url).netloc.lower()
 
 
+async def fetch_kfc_api_data(fetcher: FetcherInterface, website_url: str, fetcher_config: Dict[str, Any]) -> Optional[Dict]:
+    """Fetch and parse data from the KFC API with enhanced retry logic."""
+    if not website_url:
+        logger.error("Cannot fetch KFC API data: website_url is empty")
+        return None
+
+    api_url = transform_to_api_url(website_url)
+    if not api_url:
+        logger.warning(f"Could not transform website URL to API URL: {website_url}")
+        return None
+
+    # Get KFC API headers if available in the config
+    kfc_api_headers = fetcher_config.get("api_settings", {}).get("kfc_api_headers", {})
+
+    # Create a new config with KFC API headers and enhanced retry settings
+    api_fetcher_config = fetcher_config.copy()
+    if kfc_api_headers:
+        # Replace the headers with KFC API headers
+        api_fetcher_config["headers"] = kfc_api_headers
+    else:
+        logger.warning("No KFC API headers found in config. Using default headers.")
+    
+    # Set enhanced retry settings - increase max retries and add jitter to backoff
+    api_fetcher_config["max_retries"] = fetcher_config.get("max_retries", 5)  # Increase default retries
+    api_fetcher_config["retry_delay"] = fetcher_config.get("retry_delay", 2.0)  # Longer initial delay
+    api_fetcher_config["retry_backoff"] = fetcher_config.get("retry_backoff", 1.5)  # More gradual backoff
+
+    # Try to fetch the data
+    max_application_retries = 2  # Additional application-level retries
+    for retry in range(max_application_retries + 1):
+        try:
+            logger.info(f"Fetching KFC API data from: {api_url} (Application retry: {retry}/{max_application_retries})")
+            content, content_type, status_code = await fetcher.fetch(api_url, api_fetcher_config)
+
+            if content is None:
+                logger.warning(f"Failed to fetch API data from {api_url} (Status: {status_code})")
+                if retry < max_application_retries:
+                    delay = (retry + 1) * 3.0  # Progressive delay
+                    logger.info(f"Application retry {retry+1}/{max_application_retries} after {delay}s...")
+                    await asyncio.sleep(delay)
+                    continue
+                return None
+
+            # Try to parse JSON
+            if content_type and "json" in content_type.lower():
+                api_data = json.loads(content)
+                return api_data
+            else:
+                try:
+                    api_data = json.loads(content)
+                    return api_data
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to parse JSON from API response: {api_url}")
+                    if retry < max_application_retries:
+                        delay = (retry + 1) * 3.0
+                        logger.info(f"Retrying after JSON parse error (retry {retry+1}/{max_application_retries}) after {delay}s...")
+                        await asyncio.sleep(delay)
+                        continue
+                    return None
+        except Exception as e:
+            logger.error(f"Error fetching KFC API data from {api_url}: {e}", exc_info=True)
+            if retry < max_application_retries:
+                delay = (retry + 1) * 3.0
+                logger.info(f"Retrying after exception (retry {retry+1}/{max_application_retries}) after {delay}s...")
+                await asyncio.sleep(delay)
+                continue
+            return None
+    
+    logger.error(f"All retries failed for {api_url}")
+    return None
+
 def build_results(raw_place_details_list: List[List]) -> List[Place]:
     """Build a list of Place objects from the extracted raw place detail lists."""
     results = []
@@ -274,16 +421,6 @@ def build_results(raw_place_details_list: List[List]) -> List[Place]:
                 # logger.debug(f"Skipping place with non-AU website: {website_str}")
                 continue
 
-            # Name (often at index 11)
-            name = get_nested_value(place_detail, [11])
-            name_str = str(name).strip() if name else "Unknown KFC"
-
-            # Address (often at index 18)
-            address_str = build_address(place_detail)
-            if not address_str:  # Skip if address couldn't be found
-                logger.warning(f"Skipping place '{name_str}' due to missing address.")
-                continue
-
             # Drive-Thru (often at index 142 -> 1 -> 0 -> 6 -> 0 -> 1 -> 4, value is "Drive-through")
             # This path is extremely deep and likely to break. Needs careful checking.
             is_drive_thru = False  # Default to False
@@ -305,14 +442,22 @@ def build_results(raw_place_details_list: List[List]) -> List[Place]:
                         if isinstance(attr, str) and "drive" in attr.lower():
                             is_drive_thru = True
                             break
-            # Add more fallbacks if needed (e.g., checking index 13)
 
-            # --- Create Place object ---
+            # We only need drive_thru and source_url from Google Maps
+            # The rest of the data will come from the KFC API
+            cleaned_url = clean_url(website_str)
+            if not cleaned_url:
+                # Skip if we don't have a valid URL
+                logger.warning(f"Skipping KFC with invalid URL: {website_str}")
+                continue
+
             place = Place(
-                address=address_str,
-                name=name_str,
+                name="KFC",  # Default name, will be updated from API
+                suburb="Australia",  # Default suburb, will be updated from API
+                state="",  # Will be populated from API
+                postcode="",  # Will be populated from API
                 drive_thru=is_drive_thru,
-                source_url=clean_url(website_str),
+                source_url=cleaned_url
             )
             results.append(place)
 
@@ -357,6 +502,7 @@ class KfcParser(ParserInterface):
         """
         Main parsing method. Ignores initial content and drives its own fetching based on config.
         Reads Google Maps headers from config['api_settings']['headers'].
+        Fetches KFC location details from KFC AU API.
         """
         logger.info("KfcParser starting parse...")
 
@@ -375,6 +521,13 @@ class KfcParser(ParserInterface):
                 "Google Maps headers not found in config['api_settings']['headers']. Requests might fail."
             )
 
+        # Check for KFC API headers
+        kfc_api_headers = api_settings.get("kfc_api_headers", {})
+        if not kfc_api_headers:
+            logger.warning(
+                "KFC API headers not found in config['api_settings']['kfc_api_headers']. API requests might fail."
+            )
+
         # Fetcher options from main config
         fetcher_options = config.get("fetcher_options", {})
 
@@ -384,6 +537,7 @@ class KfcParser(ParserInterface):
         fetcher_config = {
             **fetcher_options,  # Include timeout, scraperapi settings etc.
             "headers": merged_headers,
+            "api_settings": api_settings,  # Include the API settings for KFC API headers
         }
 
         # --- Generate Search Strategy ---
@@ -426,11 +580,31 @@ class KfcParser(ParserInterface):
         # --- Deduplicate and Finalize ---
         unique_places = deduplicate_places(all_places)
         logger.info(
-            f"Found {len(all_places)} raw matching places, {len(unique_places)} unique."
+            f"Found {len(all_places)} raw matching places, {len(unique_places)} unique KFC locations."
         )
 
-        # Convert Place objects to dictionaries for the system
-        final_results = [asdict(place) for place in unique_places]
+        # --- Fetch additional data from KFC API ---
+        kfc_api_tasks = []
+        for place in unique_places:
+            if place.source_url:
+                kfc_api_tasks.append(self._enrich_place_from_api(place, fetcher_config))
+
+        # Wait for all API fetches to complete
+        enriched_results = await asyncio.gather(*kfc_api_tasks, return_exceptions=True)
+
+        # Process results and filter out errors
+        final_places = []
+        for result in enriched_results:
+            if isinstance(result, TransformedLocation):
+                final_places.append(result.dict())
+            elif isinstance(result, Exception):
+                logger.error(f"Error enriching place: {result}", exc_info=True)
+
+        logger.info(f"Successfully enriched {len(final_places)} places with KFC API data.")
+
+        # Assign to final_results
+        final_results = final_places
+
         logger.info(f"KfcParser finished, returning {len(final_results)} items.")
         return final_results
 
@@ -488,3 +662,155 @@ class KfcParser(ParserInterface):
                 exc_info=True,
             )
             return None
+
+    def generate_business_id(self, name: str, address: str) -> str:
+        """Generates a simple unique ID based on name and address."""
+        data_string = f"{name.lower().strip()}|{address.lower().strip()}"
+        return hashlib.sha1(data_string.encode("utf-8")).hexdigest()
+
+    async def _enrich_place_from_api(self, place: Place, fetcher_config: Dict[str, Any]) -> TransformedLocation:
+        """Enriches a Place object with data from the KFC API and returns a TransformedLocation."""
+        try:
+            api_data = await self._fetch_api_data(place, fetcher_config)
+            basic_details = self._extract_basic_details(api_data, place.source_url)
+            business_name = self._extract_business_name(basic_details)
+            address_data = self._extract_address_data(basic_details)
+            
+            # Create and return a TransformedLocation object
+            return self._create_transformed_location(place, business_name, address_data)
+
+        except Exception as e:
+            logger.error(f"Error enriching place from API for URL {place.source_url}: {e}", exc_info=True)
+            raise e
+            
+    async def _fetch_api_data(self, place: Place, fetcher_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Fetches API data for the given place with improved error handling."""
+        if not place.source_url:
+            logger.error("Cannot enrich place: source_url is None or empty")
+            raise ValueError("Missing source_url in Place object")
+
+        logger.info(f"Enriching place from API: {place.source_url}")
+        
+        # Add extra retry at this level for critical API failures
+        max_critical_retries = 1
+        for retry in range(max_critical_retries + 1):
+            try:
+                api_data = await fetch_kfc_api_data(self.fetcher, place.source_url, fetcher_config)
+                if not api_data:
+                    if retry < max_critical_retries:
+                        logger.warning(f"Critical retry {retry+1}/{max_critical_retries} for URL: {place.source_url}")
+                        await asyncio.sleep(5.0)  # Longer delay for critical retries
+                        continue
+                    logger.warning(f"No API data found for URL: {place.source_url} after {max_critical_retries+1} attempts")
+                    raise ValueError(f"Failed to fetch API data for {place.source_url}")
+                return api_data
+            except Exception as e:
+                if retry < max_critical_retries:
+                    logger.warning(f"Exception during API fetch, critical retry {retry+1}/{max_critical_retries}: {str(e)}")
+                    await asyncio.sleep(5.0)
+                    continue
+                logger.error(f"All critical retries failed for {place.source_url}: {str(e)}")
+                raise
+        
+        # This should never be reached due to the raises above, but adding as a safety measure
+        raise ValueError(f"Failed to fetch API data for {place.source_url} after all retries")
+        
+    def _extract_basic_details(self, api_data: Dict[str, Any], source_url: str) -> Dict[str, Any]:
+        """Extracts the basic details from API data."""
+        basic_details = api_data.get("basicDetails", {})
+        if not basic_details:
+            logger.warning(f"No basicDetails found in API response for URL: {source_url}")
+            raise ValueError(f"Missing basicDetails in API response for {source_url}")
+        
+        return basic_details
+        
+    def _extract_business_name(self, basic_details: Dict[str, Any]) -> str:
+        """Extracts the business name from basic details."""
+        business_name = basic_details.get("name", "")
+        if not business_name:
+            business_name = "KFC"  # Default if not found
+        
+        return business_name
+        
+    def _extract_address_data(self, basic_details: Dict[str, Any]) -> Dict[str, Any]:
+        """Extracts and processes address data from basic details."""
+        # Initialize address components with defaults
+        address_data = {
+            "street_address": None,
+            "shopping_centre_name": None,
+            "suburb": "Australia",  # Default fallback suburb
+            "state": "",
+            "postcode": ""
+        }
+        
+        # Extract location details
+        local_address = self._find_local_address(basic_details)
+        
+        if local_address:
+            # Extract address components
+            address_data["state"] = local_address.get("state", "")
+            address_data["suburb"] = local_address.get("city", "").upper()
+            address_data["postcode"] = local_address.get("pinCode", "")
+            
+            # Process address lines
+            self._process_address_lines(local_address, address_data)
+            
+        return address_data
+        
+    def _find_local_address(self, basic_details: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Finds the local address in the basic details."""
+        location_details = basic_details.get("localAddress", [])
+        if location_details and isinstance(location_details, list):
+            for loc in location_details:
+                if loc.get("lang") == "en-US" and "address" in loc:
+                    return loc["address"]
+        return None
+        
+    def _process_address_lines(self, local_address: Dict[str, Any], address_data: Dict[str, Any]) -> None:
+        """Processes the address lines to extract street address and shopping centre name."""
+        address_lines = local_address.get("addressLines", [])
+        if not address_lines or not isinstance(address_lines, list):
+            return
+            
+        if len(address_lines) == 1:
+            address_data["street_address"] = address_lines[0]
+        elif len(address_lines) > 1:
+            self._process_multiple_address_lines(address_lines, address_data)
+            
+    def _process_multiple_address_lines(self, address_lines: List[str], address_data: Dict[str, Any]) -> None:
+        """Processes multiple address lines to identify street address and shopping centre."""
+        shopping_centre_keywords = ["shopping centre", "mall", "plaza", "arcade", "food court", "westfield"]
+
+        for line in address_lines:
+            is_shopping_centre = any(keyword in line.lower() for keyword in shopping_centre_keywords)
+            if is_shopping_centre:
+                address_data["shopping_centre_name"] = clean_shopping_centre_name(line)
+            else:
+                address_data["street_address"] = line
+
+        # If we didn't identify a shopping center, use first line as street address
+        if not address_data["street_address"]:
+            address_data["street_address"] = address_lines[0]
+            
+    def _create_transformed_location(self, place: Place, business_name: str, address_data: Dict[str, Any]) -> TransformedLocation:
+        """Creates a TransformedLocation object from the extracted data."""
+        street_address = address_data["street_address"] or ""
+        suburb = address_data["suburb"] or "Australia"
+        state = address_data["state"] or ""
+        postcode = address_data["postcode"] or ""
+        
+        return TransformedLocation(
+            business_name=business_name or "KFC",  # Default to "KFC" if empty
+            street_address=street_address,  # Already converted None to empty string
+            suburb=suburb,  # Already has default
+            state=state,
+            postcode=postcode,
+            drive_thru=place.drive_thru,
+            shopping_centre_name=address_data["shopping_centre_name"],
+            source_url=place.source_url,
+            source="kfc_au",  # Source identifier for KFC
+            business_id=self.generate_business_id(
+                business_name,
+                f"{street_address}, {suburb} {state} {postcode}",
+            ),
+        )

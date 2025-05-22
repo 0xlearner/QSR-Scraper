@@ -108,53 +108,25 @@ class GrilldParser(ParserInterface):
         try:
             tree = SelectolaxHTMLParser(detail_content)
 
-            # 1. Extract Address and Coordinates
+            # Extract the restaurant name from the h1 with class "restaurant-name"
+            name_node = tree.css_first("h1.restaurant-name")
+            if name_node:
+                name = name_node.text(strip=True)
+            elif not name:
+                # Fallback to title if h1 not found
+                title_node = tree.css_first("title")
+                if title_node:
+                    title_text = title_node.text(strip=True)
+                    if " | " in title_text:
+                        name = title_text.split(" | ")[0]
+
+            # Extract Address
             address_node = tree.css_first(
                 'a.details-text-link[href*="maps.google.com"]'
             )
-            address: Optional[str] = None
-            latitude: Optional[str] = None
-            longitude: Optional[str] = None
+            address = address_node.text(strip=True) if address_node else ""
 
-            if address_node:
-                address = address_node.text(strip=True)
-                maps_url = address_node.attributes.get("href", "")
-
-                # Extract coordinates from the URL
-                if "ll=" in maps_url:
-                    # Handle URL format with 'll=' parameter
-                    coords_part = maps_url.split("ll=")[-1].split("&")[0]
-                    try:
-                        lat_str, lon_str = coords_part.split(",")
-                        latitude = lat_str.strip("-")  # Remove potential leading dash
-                        longitude = lon_str.strip()
-                    except ValueError:
-                        logger.warning(
-                            f"Could not parse coordinates from URL: {maps_url}"
-                        )
-                else:
-                    # Alternative: try to find coordinates in the URL using regex
-                    import re
-
-                    coords_match = re.search(r"[-]?\d+\.\d+,\s*[-]?\d+\.\d+", maps_url)
-                    if coords_match:
-                        try:
-                            lat_str, lon_str = coords_match.group(0).split(",")
-                            latitude = lat_str.strip()
-                            longitude = lon_str.strip()
-                        except ValueError:
-                            logger.warning(
-                                f"Could not parse coordinates from URL match: {coords_match.group(0)}"
-                            )
-
-                if not address:
-                    logger.warning(f"Address text not found on detail page: {url}")
-                    return None  # Require address
-            else:
-                logger.warning(f"Address link not found on detail page: {url}")
-                return None  # Require address
-
-            # 2. Check for Drive Thru
+            # Check for Drive Thru
             has_drive_thru = False
             chip_nodes: List[Node] = tree.css("span.chip-text")
             for node in chip_nodes:
@@ -162,17 +134,15 @@ class GrilldParser(ParserInterface):
                 if "drive thru" in node_text:
                     has_drive_thru = True
                     break
-            # 3. Construct Result - Include coordinates if available
-            result_data = {
-                "name": name,
-                "address": address,
-                "source_url": url,
-                "drive_thru": has_drive_thru,
-                "latitude": latitude,
-                "longitude": longitude,
-            }
 
-            return result_data
+            # Return the basic scraped data
+            return {
+                "business_name": name or "Grill'd",
+                "address": address,  # Raw address for transformation
+                "drive_thru": has_drive_thru,
+                "source_url": url,
+                "source": "grilld",
+            }
 
         except Exception as e:
             logger.error(

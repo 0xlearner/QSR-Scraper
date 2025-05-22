@@ -1,102 +1,124 @@
 import logging
+from dataclasses import dataclass
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-from selectolax.parser import HTMLParser as SelectolaxHTMLParser
+from selectolax.parser import HTMLParser
 
 from scraper_system.interfaces.parser_interface import ParserInterface
-from scraper_system.interfaces.fetcher_interface import (
-    FetcherInterface,
-)
+from scraper_system.interfaces.fetcher_interface import FetcherInterface
 
 logger = logging.getLogger(__name__)
 
+@dataclass
+class GyGLocation:
+    business_name: str
+    address: str
+    source_url: str
+    source: str
+    drive_thru: bool
+    scraped_date: datetime
 
-class GYGParser(ParserInterface):
+
+class GygParser(ParserInterface):
     """
-    Parses the Guzman y Gomez locations page (which lists all locations directly)
-    to extract location details from data attributes.
+    Parses Guzman y Gomez locations from their website.
+    Focuses only on scraping the raw data, leaving transformation to the transformer.
     """
 
     def __init__(self, fetcher: Optional[FetcherInterface] = None):
-        if fetcher is None:
-            # This should not happen if Orchestrator injects correctly, but good practice
-            raise ValueError("GYGParser requires a Fetcher instance.")
         self.fetcher = fetcher
-        logger.info("GYGParser initialized with a fetcher.")
+        logger.info("GygParser initialized")
 
     async def parse(
         self, content: str, content_type: Optional[str], config: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """
-        Parses the GYG locations page HTML content.
+        Main parsing method that scrapes GYG locations and processes them
         """
-        if not content:
-            logger.warning("No content provided to GYGParser.")
-            return []
+        if self.fetcher is None:
+            logger.warning("No fetcher provided to GygParser, using initial content")
+            if not content:
+                logger.error("No content provided to GygParser")
+                return []
+            html_content = content
+        else:
+            # URL of the locations page
+            url = "https://www.guzmanygomez.com.au/locations/"
 
-        logger.info("GYGParser starting parsing.")
-        results = []
+            # Set headers to mimic a browser visit
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            }
+
+            fetcher_config = config.get("fetcher_options", {})
+            if not fetcher_config.get("headers"):
+                fetcher_config["headers"] = headers
+
+            # Fetch the content
+            html_content, _, status_code = await self.fetcher.fetch(url, fetcher_config)
+
+            if not html_content:
+                logger.error(f"Failed to fetch GYG locations (Status: {status_code})")
+                return []
+
+        # Scrape the locations
+        locations = self._scrape_locations(html_content)
+        
+        # Convert to simple dictionaries for the transformer
+        result = []
+        for loc in locations:
+            result.append({
+                "business_name": loc.business_name,
+                "raw_address": loc.address,
+                "drive_thru": loc.drive_thru,
+                "source_url": loc.source_url,
+                "source": loc.source
+            })
+
+        logger.info(f"GygParser finished, returning {len(result)} items.")
+        return result
+
+    def _scrape_locations(self, html_content: str) -> List[GyGLocation]:
+        """
+        Scrapes location data from HTML content
+        """
+        locations = []
 
         try:
-            tree = SelectolaxHTMLParser(content)
-            # Selector targets the individual location divs within the accordion structure
-            location_nodes = tree.css("#accordion-locations div.location")
-            logger.info(f"Found {len(location_nodes)} location nodes.")
+            # Parse the HTML content with selectolax
+            html = HTMLParser(html_content)
 
-            for node in location_nodes:
-                try:
-                    # Extract data directly from attributes
-                    address = node.attributes.get("data-address")
-                    name = node.attributes.get("data-name")
-                    source_url = node.attributes.get(
-                        "data-url"
-                    )  # The location's specific page URL
-                    longitude = node.attributes.get("data-longitude")
-                    latitude = node.attributes.get("data-latitude")
-                    # Extract categories to check for drive-thru
-                    categories_class = node.attributes.get("class", "").lower()
-                    has_drive_thru = (
-                        "category-drive-thru" in categories_class
-                        or "drive thru" in categories_class
-                    )  # Adjust if class name differs
+            # Find all location divs
+            location_divs = html.css("div.location")
 
-                    if not address:
-                        logger.warning(
-                            f"Skipping location node, missing 'data-address'. Name: {name or 'N/A'}"
+            for div in location_divs:
+                # Extract the data attributes
+                address = div.attributes.get("data-address")
+                name = div.attributes.get("data-name")
+                url = div.attributes.get("data-url")
+                # Extract categories to check for drive-thru
+                categories_class = div.attributes.get("class", "").lower()
+                has_drive_thru = (
+                    "category-drive-thru" in categories_class
+                    or "drive thru" in categories_class
+                )
+
+                if address:  # Only add if address exists
+                    locations.append(
+                        GyGLocation(
+                            address=address,
+                            source_url=url,
+                            source="gyg",
+                            business_name="Guzman Y Gomez " + name,
+                            drive_thru=has_drive_thru,
+                            scraped_date=datetime.now(),
                         )
-                        continue
-                    if not name:
-                        logger.warning(
-                            f"Location node missing 'data-name'. Address: {address}"
-                        )
-                        # Decide whether to skip or use a placeholder
-                        # continue
-                        name = "Unknown GYG Location"  # Example placeholder
-
-                    location_data = {
-                        "name": name,
-                        "address": address,
-                        "source_url": source_url,
-                        "latitude": latitude,
-                        "longitude": longitude,
-                        "drive_thru": has_drive_thru,
-                    }
-                    results.append(location_data)
-                    # logger.debug(f"Extracted GYG Location: {name} - Drive Thru: {has_drive_thru}") # Optional Debug
-
-                except Exception as e:
-                    # Log error for a specific node but continue with others
-                    node_id = node.attributes.get("id", "N/A")
-                    logger.error(
-                        f"Error processing individual GYG location node (id: {node_id}): {e}",
-                        exc_info=True,
                     )
 
-        except Exception as e:
-            logger.error(
-                f"Error parsing Guzman y Gomez locations page: {e}", exc_info=True
-            )
-            return []  # Return empty list on major parsing failure
+            logger.info(f"Found {len(locations)} GYG locations")
+            return locations
 
-        logger.info(f"GYGParser finished, returning {len(results)} raw items.")
-        return results
+        except Exception as e:
+            logger.error(f"Error scraping GYG locations: {e}", exc_info=True)
+            return []

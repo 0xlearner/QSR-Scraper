@@ -1,9 +1,10 @@
 import logging
 import asyncio
+import json
 from typing import List, Dict, Any, Optional
 
 
-from selectolax.parser import HTMLParser as SelectolaxHTMLParser, Node  # Import Node
+from selectolax.parser import HTMLParser as SelectolaxHTMLParser, Node
 
 from scraper_system.interfaces.parser_interface import ParserInterface
 from scraper_system.interfaces.fetcher_interface import (
@@ -87,6 +88,43 @@ class EljannahParser(ParserInterface):
         logger.info(f"EljannahParser finished, returning {len(final_results)} items.")
         return final_results
 
+    def _extract_ld_json_data(
+        self, tree: SelectolaxHTMLParser
+    ) -> Optional[Dict[str, Any]]:
+        """Extract and parse the LD+JSON data from the page."""
+        try:
+            # Look for the LD+JSON script tag
+            ld_json_script = tree.css_first(
+                'script[type="application/ld+json"].rank-math-schema-pro'
+            )
+            if not ld_json_script:
+                logger.warning("No LD+JSON script found on the page")
+                return None
+
+            # Parse the JSON content
+            json_content = ld_json_script.text()
+            if not json_content:
+                logger.warning("Empty LD+JSON content")
+                return None
+
+            json_data = json.loads(json_content)
+
+            # Find the Restaurant object in the @graph array
+            restaurant_data = None
+            if "@graph" in json_data and isinstance(json_data["@graph"], list):
+                for item in json_data["@graph"]:
+                    if item.get("@type") == "Restaurant":
+                        restaurant_data = item
+                        break
+
+            return restaurant_data
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse LD+JSON data: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Error extracting LD+JSON data: {e}")
+            return None
+
     async def fetch_and_parse_detail(
         self, url: str, fetcher_config: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
@@ -103,60 +141,61 @@ class EljannahParser(ParserInterface):
             try:
                 tree = SelectolaxHTMLParser(html_content)
 
-                # 1. Extract Name
-                name_node = tree.css_first(
-                    "h1.elementor-heading-title.elementor-size-default"
-                )
-                name = (
-                    name_node.text(strip=True)
-                    if name_node
-                    else "Unknown El Jannah Location"
-                )
-                if name == "Unknown El Jannah Location":
-                    logger.warning(f"Could not extract name from detail page: {url}")
-                    # Optional: return None if name is critical
+                # Extract data from LD+JSON
+                ld_json_data = self._extract_ld_json_data(tree)
 
-                # 2. Extract Address
-                address_node = tree.css_first(
-                    "div.elementor-heading-title.elementor-size-default a[href='#map']"
-                )
-                address = address_node.text(strip=True) if address_node else None
-                if not address:
-                    logger.warning(f"Could not extract address from detail page: {url}")
-                    # Optional: return None if address is critical
+                if ld_json_data:
+                    # Extract name from LD+JSON
+                    name = ld_json_data.get("name", "")
+                    if name:
+                        # Clean up name (remove "| The Best Charcoal & Fried Chicken" part)
+                        if "|" in name:
+                            name = name.split("|")[0].strip()
+                    else:
+                        # Fallback to HTML extraction if LD+JSON doesn't have name
+                        name_node = tree.css_first(
+                            "h1.elementor-heading-title.elementor-size-default"
+                        )
+                        name = (
+                            name_node.text(strip=True)
+                            if name_node
+                            else "Unknown El Jannah Location"
+                        )
 
-                # 4. Extract Drive-Thru Status
-                has_drive_thru: bool = False  # Default to False
-                attributes_list: Optional[Node] = tree.css_first("ul.yext-attributes")
-                if attributes_list:
-                    list_items: List[Node] = attributes_list.css("li")
-                    for item in list_items:
-                        item_text = item.text(strip=True)
-                        if item_text.startswith("Has Drive Through:"):
-                            value = item_text.split(":", 1)[-1].strip()
-                            if value.lower() == "yes":
-                                has_drive_thru = True
-                                logger.debug(f"Drive-thru found for {url}")
-                            break
-                else:
-                    logger.debug(
-                        f"Attributes list 'ul.yext-attributes' not found on page: {url}"
+                    # Extract address components from LD+JSON
+                    address_data = ld_json_data.get("address", {})
+                    street_address = address_data.get("streetAddress", "")
+                    suburb = address_data.get("addressRegion", "")
+                    state = url.split("/")[-3].upper()
+                    postcode = address_data.get("postalCode", "")
+
+                    # Extract drive-thru status
+                    has_drive_thru: bool = False  # Default to False
+                    attributes_list: Optional[Node] = tree.css_first(
+                        "ul.yext-attributes"
                     )
+                    if attributes_list:
+                        list_items: List[Node] = attributes_list.css("li")
+                        for item in list_items:
+                            item_text = item.text(strip=True)
+                            if item_text.startswith("Has Drive Through:"):
+                                value = item_text.split(":", 1)[-1].strip()
+                                if value.lower() == "yes":
+                                    has_drive_thru = True
+                                    logger.debug(f"Drive-thru found for {url}")
+                                break
 
-                # 5. Construct Result
-                if name and address:
-                    result_data = {
-                        "name": name,
-                        "address": address,
-                        "source_url": url,
+                    # Return basic data for transformation
+                    return {
+                        "business_name": name,
+                        "street_address": street_address,
+                        "suburb": suburb,
+                        "state": state,
+                        "postcode": postcode,
                         "drive_thru": has_drive_thru,
+                        "source_url": url,
+                        "source": "eljannah",
                     }
-                    return result_data
-                else:
-                    logger.warning(
-                        f"Skipping result for {url} due to missing critical info (Name or Address)."
-                    )
-                    return None
 
             except Exception as e:
                 logger.error(f"Error parsing detail page {url}: {e}", exc_info=True)

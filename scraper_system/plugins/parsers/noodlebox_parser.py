@@ -1,220 +1,115 @@
-import logging
 import json
-from typing import List, Dict, Any, Optional, Tuple
+import logging
+from typing import List, Dict, Any, Optional
 
 from scraper_system.interfaces.parser_interface import ParserInterface
-from scraper_system.interfaces.fetcher_interface import (
-    FetcherInterface,
-)
+from scraper_system.interfaces.fetcher_interface import FetcherInterface
 
 logger = logging.getLogger(__name__)
 
 
 class NoodleboxParser(ParserInterface):
     """
-    Parses Noodle Box locations by fetching data directly from their internal API endpoint
-    using the injected FetcherInterface configured for a POST request. API details are
-    expected in the site configuration passed to the parse method.
+    Parses Noodlebox locations from their API.
+    Focuses only on scraping the raw data, leaving transformation to the transformer.
     """
 
     def __init__(self, fetcher: Optional[FetcherInterface] = None):
-        if fetcher is None:
-            raise ValueError(f"{self.__class__.__name__} requires a Fetcher instance.")
         self.fetcher = fetcher
-        logger.info(f"{self.__class__.__name__} initialized with fetcher.")
-
-    def _prepare_fetcher_config(self, global_config: Dict[str, Any]) -> Dict[str, Any]:
-        """Prepares the configuration dictionary for the fetcher call using API settings from global_config."""
-        api_settings = global_config.get("api_settings", {})
-        api_headers = api_settings.get("headers", {})
-        api_payload = api_settings.get("payload", {})
-
-        global_fetcher_options = global_config.get("fetcher_options", {})
-        # Merge global headers, then API-specific headers (API headers take precedence)
-        merged_headers = {**global_fetcher_options.get("headers", {}), **api_headers}
-
-        return {
-            **global_fetcher_options,
-            "method": "POST",
-            "headers": merged_headers,
-            "json_payload": api_payload,
-        }
-
-    async def _fetch_and_decode_data(
-        self, api_url: str, fetcher_config: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
-        """Fetches data using the fetcher and decodes the JSON response."""
-        if not api_url:
-            logger.error("API URL is missing, cannot fetch data.")
-            return None
-
-        response_content, _, status_code = await self.fetcher.fetch(
-            api_url, fetcher_config
-        )
-
-        if response_content is None:
-            logger.error(
-                f"Fetcher failed to retrieve data from Noodle Box API (Status: {status_code})"
-            )
-            return None
-
-        try:
-            return json.loads(response_content)
-        except json.JSONDecodeError as e:
-            logger.error(
-                f"Failed to decode JSON response from Noodle Box API (URL: {api_url}, Status: {status_code}) via fetcher: {e}. Content snippet: {response_content[:500]}"
-            )
-            return None
-
-    def _extract_location_list(
-        self, raw_data: Optional[Dict[str, Any]]
-    ) -> Optional[List[Dict[str, Any]]]:
-        """Extracts and validates the list of locations from the raw API response."""
-        if not isinstance(raw_data, dict) or "data" not in raw_data:
-            logger.error(
-                f"Noodle Box API response is not a dictionary or missing 'data' key. Found type: {type(raw_data)}. Data: {str(raw_data)[:500]}"
-            )
-            return None
-
-        location_list = raw_data.get("data")
-
-        if not isinstance(location_list, list):
-            logger.error(
-                f"The 'data' key in Noodle Box API response is not a list. Found type: {type(location_list)}. Data: {str(location_list)[:500]}"
-            )
-            return None
-
-        logger.info(
-            f"Received {len(location_list)} raw location entries from Noodle Box API via fetcher."
-        )
-        return location_list
-
-    def _parse_latlng(
-        self, latlng_str: Optional[str], name: str
-    ) -> Tuple[Optional[str], Optional[str]]:
-        """Parses the latitude/longitude string."""
-        latitude, longitude = None, None
-        if not latlng_str or "," not in latlng_str:
-            logger.warning(
-                f"Skipping lat/lng parsing for '{name}' due to missing or invalid string: {latlng_str}"
-            )
-            return latitude, longitude
-
-        try:
-            lat_str, lon_str = latlng_str.split(",", 1)
-            latitude = lat_str.strip()
-            longitude = lon_str.strip()
-        except ValueError:
-            logger.warning(f"Could not split latlng string for '{name}': {latlng_str}")
-
-        return latitude, longitude
-
-    def _parse_address(
-        self, address_parts: Optional[List[str]], name: str
-    ) -> Optional[str]:
-        """Parses the address list into a single string."""
-        if not isinstance(address_parts, list) or not address_parts:
-            logger.warning(
-                f"Cannot parse address for '{name}' due to missing or invalid address list: {address_parts}"
-            )
-            return None
-        return ", ".join(
-            part.strip() for part in address_parts if part and part.strip()
-        )
-
-    def _parse_single_location(self, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Parses a single location dictionary from the API response."""
-        if not isinstance(item, dict):
-            logger.warning(
-                f"Skipping non-dictionary item in Noodle Box response data list: {item}"
-            )
-            return None
-
-        try:
-            name = item.get("name")
-            if not name:
-                logger.warning(f"Skipping Noodle Box item due to missing name: {item}")
-                return None
-            name = name.strip()  # Clean name early
-
-            address = self._parse_address(item.get("address"), name)
-            if not address:
-                return None  # Error logged in helper
-
-            latitude, longitude = self._parse_latlng(item.get("latlng"), name)
-            # Continue even if lat/lng parsing fails
-
-            return {
-                "name": name,
-                "address": address,
-                "latitude": latitude,
-                "longitude": longitude,
-                "drive_thru": False,  # Assuming no drive-thru info available
-                "source_url": "https://www.noodlebox.com.au/locations",  # Static source page URL
-            }
-        except Exception as e:
-            # Catch errors specific to processing this single item
-            logger.error(
-                f"Error processing individual Noodle Box item: {item}. Error: {e}",
-                exc_info=True,
-            )
-            return None
+        logger.info("NoodleboxParser initialized")
 
     async def parse(
-        self,
-        content: Optional[str],
-        content_type: Optional[str],
-        config: Dict[str, Any],
+        self, content: str, content_type: Optional[str], config: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """
-        Fetches and parses location data from the Noodle Box API using the injected fetcher.
-        API details (URL, headers, payload) are read from the 'config' dictionary.
-        Orchestrates fetching, decoding, and parsing using helper methods.
+        Main parsing method that fetches Noodlebox locations and returns raw data
         """
-        results = []
-        api_settings = config.get("api_settings")
-        if not api_settings:
-            logger.error(
-                f"{self.__class__.__name__} requires 'api_settings' in the configuration."
-            )
+        json_data = {}
+
+        # If we have existing content, try to parse it
+        if content:
+            try:
+                json_data = json.loads(content)
+                logger.info("Using provided JSON content")
+            except json.JSONDecodeError:
+                logger.warning("Provided content is not valid JSON")
+
+        # If we don't have content, or it's not valid JSON, fetch it
+        if not json_data and self.fetcher:
+            json_data = await self._fetch_noodlebox_data(config)
+
+        if not json_data or 'data' not in json_data:
+            logger.error("Failed to get Noodlebox location data")
             return []
 
-        api_url = api_settings.get("url")
-        if not api_url:
-            logger.error(
-                f"{self.__class__.__name__} requires 'url' within 'api_settings' in the configuration."
-            )
-            return []
+        # Process the data - just extract basic info for the transformer
+        locations = []
+        for location in json_data.get("data", []):
+            business_name = location.get("name", "").strip()
+            address_list = location.get("address", [])
+            
+            # Join all address components for full address
+            raw_address = " ".join(address_list) if address_list else ""
+            
+            # Create a simple dictionary with the basic info
+            location_data = {
+                "business_name": "Noodlebox " + business_name,
+                "raw_address": raw_address,
+                "drive_thru": False,  # Assuming no drive-thru unless specified
+                "source_url": "https://www.noodlebox.com.au/locations",
+                "source": "noodlebox"
+            }
+            
+            locations.append(location_data)
 
-        logger.info(
-            f"{self.__class__.__name__} starting parse. Requesting data from {api_url} via fetcher."
-        )
+        logger.info(f"NoodleboxParser finished, returning {len(locations)} items.")
+        return locations
+
+    async def _fetch_noodlebox_data(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Fetch data from Noodlebox API
+        """
+        url = "https://www.noodlebox.com.au/data/locations"
+
+        # Set headers to mimic a browser visit
+        headers = {
+            "accept": "application/json, text/javascript, */*; q=0.01",
+            "accept-language": "en-US,en;q=0.8",
+            "origin": "https://www.noodlebox.com.au",
+            "priority": "u=1, i",
+            "referer": "https://www.noodlebox.com.au/locations",
+            "sec-ch-ua": '"Brave";v="135", "Not-A.Brand";v="8", "Chromium";v="135"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Linux"',
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+            "sec-gpc": "1",
+            "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+            "x-requested-with": "XMLHttpRequest",
+        }
+
+        fetcher_config = config.get("fetcher_options", {})
+        if not fetcher_config.get("headers"):
+            fetcher_config["headers"] = headers
 
         try:
-            # Prepare fetcher config using the full site config (which includes api_settings)
-            fetcher_config = self._prepare_fetcher_config(config)
-            # Fetch data using the specific API URL from config
-            raw_data = await self._fetch_and_decode_data(api_url, fetcher_config)
-            location_list = self._extract_location_list(raw_data)
+            # Fetch the content
+            content, _, status_code = await self.fetcher.fetch(url, fetcher_config)
 
-            if location_list is None:
-                # Error logged in helper methods
-                return []  # Return empty list if fetch/decode/extract fails
+            if not content:
+                logger.error(f"Failed to fetch Noodlebox locations (Status: {status_code})")
+                return {}
 
-            # Process each valid location item
-            for item in location_list:
-                parsed_location = self._parse_single_location(item)
-                if parsed_location:
-                    results.append(parsed_location)
+            # Parse the JSON content
+            if isinstance(content, str):
+                json_data = json.loads(content)
+                logger.info(f"Successfully fetched Noodlebox location data with {len(json_data.get('data', []))} locations")
+                return json_data
+            else:
+                logger.error("Unexpected response type from fetcher")
+                return {}
 
         except Exception as e:
-            # Catch unexpected errors during the orchestration process
-            logger.error(
-                f"Unexpected error in {self.__class__.__name__}.parse orchestration: {e}",
-                exc_info=True,
-            )
-
-        logger.info(
-            f"{self.__class__.__name__} finished, returning {len(results)} parsed items."
-        )
-        return results
+            logger.error(f"Error fetching Noodlebox location data: {e}", exc_info=True)
+            return {}

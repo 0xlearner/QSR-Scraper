@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from typing import Optional, Tuple, Dict, Any
 import httpx
 from scraper_system.interfaces.fetcher_interface import FetcherInterface
@@ -36,6 +37,9 @@ class AsyncHTTPXFetcher(FetcherInterface):
         - scraperapi_key (str): Your ScraperAPI API key (required if use_scraperapi is True).
         - scraperapi_options (dict): Additional parameters for the ScraperAPI request
                                       (e.g., {'country_code': 'us', 'render': 'true'}).
+        - max_retries (int): Maximum number of retry attempts for transient errors (default: 3).
+        - retry_delay (float): Base delay between retries in seconds (default: 1.0).
+        - retry_backoff (float): Multiplier for exponential backoff between retries (default: 2.0).
         """
         # Merge default config with request-specific config
         merged_config = {**self.default_config}
@@ -55,6 +59,11 @@ class AsyncHTTPXFetcher(FetcherInterface):
         use_scraperapi = merged_config.get("use_scraperapi", False)
         scraperapi_key = merged_config.get("scraperapi_key")
         scraperapi_options = merged_config.get("scraperapi_options", {})
+        
+        # Retry configuration
+        max_retries = merged_config.get("max_retries", 3)
+        retry_delay = merged_config.get("retry_delay", 1.0)
+        retry_backoff = merged_config.get("retry_backoff", 2.0)
 
         request_url = url
         params = None
@@ -84,33 +93,50 @@ class AsyncHTTPXFetcher(FetcherInterface):
         else:
             logger.debug(f"Fetching URL directly: {url}")
 
-        try:
-            async with httpx.AsyncClient(
-                headers=headers, timeout=timeout, follow_redirects=True
-            ) as client:
-                response = await client.get(request_url, params=params)
-                response.raise_for_status()
+        retry_count = 0
+        while retry_count <= max_retries:
+            try:
+                async with httpx.AsyncClient(
+                    headers=headers, timeout=timeout, follow_redirects=True
+                ) as client:
+                    response = await client.get(request_url, params=params)
+                    response.raise_for_status()
 
-                content_type = response.headers.get("content-type", "").lower()
-                content = response.text
-                status_code = response.status_code
+                    content_type = response.headers.get("content-type", "").lower()
+                    content = response.text
+                    status_code = response.status_code
 
-                logger.debug(
-                    f"Fetched {log_target} successfully. Status: {status_code}, Content-Type: {content_type}"
+                    logger.debug(
+                        f"Fetched {log_target} successfully. Status: {status_code}, Content-Type: {content_type}"
+                    )
+                    return content, content_type, status_code
+
+            except (httpx.RequestError, httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ReadError, httpx.ConnectError, httpx.RemoteProtocolError) as e:
+                retry_count += 1
+                if retry_count <= max_retries:
+                    # Calculate exponential backoff delay
+                    delay = retry_delay * (retry_backoff ** (retry_count - 1))
+                    logger.warning(
+                        f"Transient error fetching {log_target}: {e.__class__.__name__} - {e}. "
+                        f"Retrying ({retry_count}/{max_retries}) after {delay:.2f}s delay..."
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(
+                        f"HTTP Request error fetching {log_target}: {e.__class__.__name__} - {e}. "
+                        f"Max retries ({max_retries}) exceeded."
+                    )
+            except httpx.HTTPStatusError as e:
+                # Don't retry HTTP status errors (4xx, 5xx) as they're less likely to be transient
+                logger.error(
+                    f"HTTP Status error fetching {log_target}: Status {e.response.status_code}"
                 )
-                return content, content_type, status_code
-
-        except httpx.RequestError as e:
-            logger.error(
-                f"HTTP Request error fetching {log_target}: {e.__class__.__name__} - {e}"
-            )
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                f"HTTP Status error fetching {log_target}: Status {e.response.status_code}"
-            )
-        except Exception as e:
-            logger.error(
-                f"Unexpected error fetching {log_target}: {e.__class__.__name__} - {e}"
-            )
+                break
+            except Exception as e:
+                # Don't retry unexpected errors
+                logger.error(
+                    f"Unexpected error fetching {log_target}: {e.__class__.__name__} - {e}"
+                )
+                break
 
         return None, None, None
