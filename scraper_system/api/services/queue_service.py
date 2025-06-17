@@ -4,10 +4,16 @@ from typing import Dict, Any
 import asyncio
 from scraper_system.core.orchestrator import Orchestrator
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
-redis_conn = redis.Redis(host="localhost", port=6379, db=0)
+# Use the service name 'redis' as the hostname when running in Docker
+redis_host = os.environ.get("REDIS_HOST", "localhost")
+redis_port = int(os.environ.get("REDIS_PORT", 6379))
+logger.info(f"Queue service connecting to Redis at {redis_host}:{redis_port}")
+
+redis_conn = redis.Redis(host=redis_host, port=redis_port, db=0)
 queue = Queue(
     "scraper_jobs", connection=redis_conn, default_timeout=-1
 )  # 30 minute timeout

@@ -31,7 +31,12 @@ logging.basicConfig(
 logger = logging.getLogger("scraper_worker")
 logger.info(f"Logging to file: {log_file_path}")
 
-redis_conn = redis.Redis(host="localhost", port=6379, db=0)
+# Use the service name 'redis' as the hostname when running in Docker
+redis_host = os.environ.get("REDIS_HOST", "localhost")
+redis_port = int(os.environ.get("REDIS_PORT", 6379))
+logger.info(f"Connecting to Redis at {redis_host}:{redis_port}")
+
+redis_conn = redis.Redis(host=redis_host, port=redis_port, db=0)
 
 if __name__ == "__main__":
     try:
