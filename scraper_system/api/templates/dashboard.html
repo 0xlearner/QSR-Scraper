@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>QSR Scraper Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #333;
+        }
+
+        .button {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 15px 32px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .button.secondary {
+            background-color: #2196F3;
+        }
+
+        #status {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>QSR Scraper Dashboard</h1>
+    <button id="startButton" class="button">Start Scraper</button>
+    <a id="viewLogsButton" href="/api/v1/logs" class="button secondary" style="display: none;">View Logs</a>
+    <div id="status"></div>
+
+    <script>
+        document.getElementById('startButton').addEventListener('click', async () => {
+            const statusDiv = document.getElementById('status');
+            const viewLogsButton = document.getElementById('viewLogsButton');
+            statusDiv.style.display = 'block';
+            statusDiv.innerHTML = 'Starting scraper job...';
+
+            try {
+                const response = await fetch('/api/v1/scrape', {
+                    method: 'POST',
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    statusDiv.innerHTML = `
+                        <p>Job started successfully!</p>
+                        <p>Job ID: ${data.job_id}</p>
+                        <p>Status: ${data.status}</p>
+                        <p>Message: ${data.message}</p>
+                    `;
+
+                    // Show the View Logs button
+                    viewLogsButton.style.display = 'inline-block';
+
+                    // Start polling for job status
+                    pollJobStatus(data.job_id);
+                } else {
+                    statusDiv.innerHTML = `Error: ${data.detail || 'Failed to start scraper'}`;
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `Error: ${error.message}`;
+            }
+        });
+
+        async function pollJobStatus(jobId) {
+            const statusDiv = document.getElementById('status');
+
+            // Poll every 5 seconds
+            const interval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/api/v1/status/${jobId}`);
+                    const data = await response.json();
+
+                    statusDiv.innerHTML = `
+                        <p>Job ID: ${jobId}</p>
+                        <p>Status: ${data.status}</p>
+                        ${data.result ? `<p>Result: ${JSON.stringify(data.result)}</p>` : ''}
+                    `;
+
+                    // Stop polling if job is finished or failed
+                    if (['finished', 'failed', 'not_found'].includes(data.status)) {
+                        clearInterval(interval);
+                    }
+                } catch (error) {
+                    statusDiv.innerHTML += `<p>Error polling status: ${error.message}</p>`;
+                    clearInterval(interval);
+                }
+            }, 5000);
+        }
+    </script>
+</body>
+
+</html>

@@ -38,7 +38,7 @@ class NoodleboxParser(ParserInterface):
         if not json_data and self.fetcher:
             json_data = await self._fetch_noodlebox_data(config)
 
-        if not json_data or 'data' not in json_data:
+        if not json_data or "data" not in json_data:
             logger.error("Failed to get Noodlebox location data")
             return []
 
@@ -47,19 +47,20 @@ class NoodleboxParser(ParserInterface):
         for location in json_data.get("data", []):
             business_name = location.get("name", "").strip()
             address_list = location.get("address", [])
-            
+
             # Join all address components for full address
             raw_address = " ".join(address_list) if address_list else ""
-            
+
             # Create a simple dictionary with the basic info
             location_data = {
+                "brand": "Noodlebox",
                 "business_name": "Noodlebox " + business_name,
                 "raw_address": raw_address,
                 "drive_thru": False,  # Assuming no drive-thru unless specified
                 "source_url": "https://www.noodlebox.com.au/locations",
-                "source": "noodlebox"
+                "source": "noodlebox",
             }
-            
+
             locations.append(location_data)
 
         logger.info(f"NoodleboxParser finished, returning {len(locations)} items.")
@@ -98,13 +99,17 @@ class NoodleboxParser(ParserInterface):
             content, _, status_code = await self.fetcher.fetch(url, fetcher_config)
 
             if not content:
-                logger.error(f"Failed to fetch Noodlebox locations (Status: {status_code})")
+                logger.error(
+                    f"Failed to fetch Noodlebox locations (Status: {status_code})"
+                )
                 return {}
 
             # Parse the JSON content
             if isinstance(content, str):
                 json_data = json.loads(content)
-                logger.info(f"Successfully fetched Noodlebox location data with {len(json_data.get('data', []))} locations")
+                logger.info(
+                    f"Successfully fetched Noodlebox location data with {len(json_data.get('data', []))} locations"
+                )
                 return json_data
             else:
                 logger.error("Unexpected response type from fetcher")

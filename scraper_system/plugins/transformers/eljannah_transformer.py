@@ -7,13 +7,16 @@ from scraper_system.models.location import TransformedLocation
 
 logger = logging.getLogger(__name__)
 
+
 class EljannahTransformer(TransformerInterface):
     """
     Transformer for El Jannah data.
     Responsible for parsing address components and transforming raw data into final format.
     """
 
-    async def transform(self, data: List[Dict[str, Any]], config: Dict[str, Any], site_name: str) -> List[Dict[str, Any]]:
+    async def transform(
+        self, data: List[Dict[str, Any]], config: Dict[str, Any], site_name: str
+    ) -> List[Dict[str, Any]]:
         """
         Transforms raw scraped data from ElJannah parser.
 
@@ -34,6 +37,7 @@ class EljannahTransformer(TransformerInterface):
         for item in data:
             try:
                 # Extract raw data
+                brand = item.get("brand", "")
                 name = item.get("business_name", "")
                 street_address = item.get("street_address", "")
                 drive_thru = item.get("drive_thru", False)
@@ -59,7 +63,9 @@ class EljannahTransformer(TransformerInterface):
                 shopping_centre_name = address_components.get("shopping_centre_name")
 
                 # Use the extracted street address from components
-                parsed_street_address = address_components.get("street_address", street_address)
+                parsed_street_address = address_components.get(
+                    "street_address", street_address
+                )
 
                 # Generate business ID
                 business_id = self.generate_business_id(
@@ -69,6 +75,7 @@ class EljannahTransformer(TransformerInterface):
 
                 # Create the transformed location
                 location = TransformedLocation(
+                    brand=brand,
                     business_name=name,
                     street_address=parsed_street_address,
                     suburb=suburb,

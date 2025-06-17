@@ -10,6 +10,7 @@ from scraper_system.interfaces.fetcher_interface import FetcherInterface
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class GyGLocation:
     business_name: str
@@ -64,17 +65,20 @@ class GygParser(ParserInterface):
 
         # Scrape the locations
         locations = self._scrape_locations(html_content)
-        
+
         # Convert to simple dictionaries for the transformer
         result = []
         for loc in locations:
-            result.append({
-                "business_name": loc.business_name,
-                "raw_address": loc.address,
-                "drive_thru": loc.drive_thru,
-                "source_url": loc.source_url,
-                "source": loc.source
-            })
+            result.append(
+                {
+                    "brand": "Guzman Y Gomez",  # Explicitly add the brand
+                    "business_name": loc.business_name,
+                    "raw_address": loc.address,
+                    "drive_thru": loc.drive_thru,
+                    "source_url": loc.source_url,
+                    "source": loc.source,
+                }
+            )
 
         logger.info(f"GygParser finished, returning {len(result)} items.")
         return result

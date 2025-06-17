@@ -8,13 +8,16 @@ from scraper_system.models.location import TransformedLocation
 
 logger = logging.getLogger(__name__)
 
+
 class GrilldTransformer(TransformerInterface):
     """
     Transformer for Grill'd data.
     Responsible for parsing address components and transforming raw data into final format.
     """
 
-    async def transform(self, data: List[Dict[str, Any]], config: Dict[str, Any], site_name: str) -> List[Dict[str, Any]]:
+    async def transform(
+        self, data: List[Dict[str, Any]], config: Dict[str, Any], site_name: str
+    ) -> List[Dict[str, Any]]:
         """
         Transforms raw scraped data from Grill'd parser.
 
@@ -35,6 +38,7 @@ class GrilldTransformer(TransformerInterface):
         for item in data:
             try:
                 # Extract raw data
+                brand = item.get("brand", "")
                 name = item.get("business_name", "")
                 address = item.get("address", "")  # Raw address string
                 street_address = item.get("street_address", "")
@@ -48,7 +52,9 @@ class GrilldTransformer(TransformerInterface):
                     suburb = address_components.get("suburb", "")
                     state = address_components.get("state", "")
                     postcode = address_components.get("postcode", "")
-                    shopping_centre_name = address_components.get("shopping_centre_name")
+                    shopping_centre_name = address_components.get(
+                        "shopping_centre_name"
+                    )
                 else:
                     # Use provided components if no raw address parsing needed
                     suburb = item.get("suburb", "")
@@ -64,6 +70,7 @@ class GrilldTransformer(TransformerInterface):
 
                 # Create the transformed location
                 location = TransformedLocation(
+                    brand=brand,
                     business_name=name,
                     street_address=street_address,
                     suburb=suburb,
@@ -98,7 +105,11 @@ class GrilldTransformer(TransformerInterface):
             result["state"] = state_part[0]  # Take first word as state
 
             # Extract postcode if present (4 digits after state)
-            if (len(state_part) > 1 and state_part[1].isdigit() and len(state_part[1]) == 4):
+            if (
+                len(state_part) > 1
+                and state_part[1].isdigit()
+                and len(state_part[1]) == 4
+            ):
                 result["postcode"] = state_part[1]
 
         return result
@@ -130,16 +141,25 @@ class GrilldTransformer(TransformerInterface):
         ]
 
         for i, part in enumerate(parts):
-            if any(keyword.lower() in part.lower() for keyword in shopping_centre_keywords):
+            if any(
+                keyword.lower() in part.lower() for keyword in shopping_centre_keywords
+            ):
                 result = part.strip()
                 # If next part continues the shopping center name, include it
-                if i + 1 < len(parts) and ("level" in parts[i + 1].lower() or "shop" in parts[i + 1].lower()):
+                if i + 1 < len(parts) and (
+                    "level" in parts[i + 1].lower() or "shop" in parts[i + 1].lower()
+                ):
                     result += f", {parts[i+1].strip()}"
                 return {"name": result, "index": i}
 
         return None
 
-    def _extract_street_address(self, parts: List[str], suburb: Optional[str], shopping_centre: Optional[Dict[str, Any]]) -> Optional[str]:
+    def _extract_street_address(
+        self,
+        parts: List[str],
+        suburb: Optional[str],
+        shopping_centre: Optional[Dict[str, Any]],
+    ) -> Optional[str]:
         """Extract street address from address parts."""
         street_parts = []
 
@@ -150,8 +170,12 @@ class GrilldTransformer(TransformerInterface):
 
             # Skip shopping center parts
             if shopping_centre and (
-                part.strip() == shopping_centre["name"] or
-                (i + 1 < len(parts) and f"{part.strip()}, {parts[i+1].strip()}" == shopping_centre["name"])
+                part.strip() == shopping_centre["name"]
+                or (
+                    i + 1 < len(parts)
+                    and f"{part.strip()}, {parts[i+1].strip()}"
+                    == shopping_centre["name"]
+                )
             ):
                 continue
 
@@ -159,7 +183,9 @@ class GrilldTransformer(TransformerInterface):
 
         return ", ".join(street_parts) if street_parts else None
 
-    def _process_street_in_shopping_centre(self, shopping_centre_name: str) -> Dict[str, str]:
+    def _process_street_in_shopping_centre(
+        self, shopping_centre_name: str
+    ) -> Dict[str, str]:
         """Extract street address from shopping center name if present."""
         result = {"street_address": None, "shopping_centre_name": shopping_centre_name}
 
@@ -173,7 +199,9 @@ class GrilldTransformer(TransformerInterface):
             result["street_address"] = street_address_match.group(1)
 
             # Remove the street address from the shopping center name
-            updated_name = shopping_centre_name.replace(result["street_address"], "").strip()
+            updated_name = shopping_centre_name.replace(
+                result["street_address"], ""
+            ).strip()
 
             # Clean up
             updated_name = re.sub(r",\s*$", "", updated_name)  # Remove trailing commas
@@ -190,7 +218,7 @@ class GrilldTransformer(TransformerInterface):
             "suburb": None,
             "state": None,
             "postcode": None,
-            "shopping_centre_name": None
+            "shopping_centre_name": None,
         }
 
         if not address:
@@ -210,11 +238,15 @@ class GrilldTransformer(TransformerInterface):
         if shopping_centre:
             components["shopping_centre_name"] = shopping_centre["name"]
 
-        components["street_address"] = self._extract_street_address(parts, components["suburb"], shopping_centre)
+        components["street_address"] = self._extract_street_address(
+            parts, components["suburb"], shopping_centre
+        )
 
         # Handle special case: street address in shopping center name
         if components["shopping_centre_name"] and not components["street_address"]:
-            result = self._process_street_in_shopping_centre(components["shopping_centre_name"])
+            result = self._process_street_in_shopping_centre(
+                components["shopping_centre_name"]
+            )
             components["street_address"] = result["street_address"]
             components["shopping_centre_name"] = result["shopping_centre_name"]
 

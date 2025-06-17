@@ -9,6 +9,7 @@ from scraper_system.models.location import TransformedLocation
 
 logger = logging.getLogger(__name__)
 
+
 class GygTransformer(TransformerInterface):
     """
     Transformer for Guzman y Gomez (GYG) data.
@@ -109,9 +110,22 @@ class GygTransformer(TransformerInterface):
 
                     # Remove street names with common suffixes
                     street_suffixes = [
-                        "St", "Rd", "Ave", "Dr", "Ln", "Blvd", "Hwy",
-                        "Pde", "Cres", "Cl", "Pl", "Way", "Drive",
-                        "Street", "Road", "Avenue",
+                        "St",
+                        "Rd",
+                        "Ave",
+                        "Dr",
+                        "Ln",
+                        "Blvd",
+                        "Hwy",
+                        "Pde",
+                        "Cres",
+                        "Cl",
+                        "Pl",
+                        "Way",
+                        "Drive",
+                        "Street",
+                        "Road",
+                        "Avenue",
                     ]
                     for suffix in street_suffixes:
                         cleaned_match = re.sub(
@@ -121,7 +135,9 @@ class GygTransformer(TransformerInterface):
                     shopping_centre_name = cleaned_match.strip()
         return shopping_centre_name
 
-    async def transform(self, data: List[Dict[str, Any]], config: Dict[str, Any], site_name: str) -> List[Dict[str, Any]]:
+    async def transform(
+        self, data: List[Dict[str, Any]], config: Dict[str, Any], site_name: str
+    ) -> List[Dict[str, Any]]:
         """
         Transforms raw scraped data from GYG parser.
 
@@ -145,7 +161,8 @@ class GygTransformer(TransformerInterface):
             processed_items = []
             for item in data:
                 try:
-                    # Extract raw data
+                    # Extract raw data with defaults for missing fields
+                    brand = item.get("brand", "Guzman Y Gomez")
                     name = item.get("business_name", "")
                     raw_address = item.get("raw_address", "")
                     street_address = item.get("street_address", "")
@@ -158,24 +175,35 @@ class GygTransformer(TransformerInterface):
                         address_components = self._parse_address_components(raw_address)
 
                     # Use provided components or parsed ones
-                    final_street_address = street_address or address_components.get("street_address", "")
-                    suburb = item.get("suburb", "") or address_components.get("suburb", "")
+                    final_street_address = street_address or address_components.get(
+                        "street_address", ""
+                    )
+                    suburb = item.get("suburb", "") or address_components.get(
+                        "suburb", ""
+                    )
                     state = item.get("state", "") or address_components.get("state", "")
-                    postcode = item.get("postcode", "") or address_components.get("postcode", "")
-                    shopping_centre_name = item.get("shopping_centre_name") or address_components.get("shopping_centre_name")
+                    postcode = item.get("postcode", "") or address_components.get(
+                        "postcode", ""
+                    )
+                    shopping_centre_name = item.get(
+                        "shopping_centre_name"
+                    ) or address_components.get("shopping_centre_name", "")
 
                     # Add to processed items
-                    processed_items.append({
-                        "business_name": name,
-                        "street_address": final_street_address,
-                        "suburb": suburb,
-                        "state": state,
-                        "postcode": postcode,
-                        "drive_thru": drive_thru,
-                        "shopping_centre_name": shopping_centre_name,
-                        "source_url": source_url,
-                        "source": "gyg"
-                    })
+                    processed_items.append(
+                        {
+                            "brand": brand,
+                            "business_name": name,
+                            "street_address": final_street_address,
+                            "suburb": suburb,
+                            "state": state,
+                            "postcode": postcode,
+                            "drive_thru": drive_thru,
+                            "shopping_centre_name": shopping_centre_name,
+                            "source_url": source_url,
+                            "source": "gyg",
+                        }
+                    )
 
                 except Exception as e:
                     logger.error(f"Error transforming GYG item: {e}", exc_info=True)
@@ -186,28 +214,34 @@ class GygTransformer(TransformerInterface):
             try:
                 # Generate business ID
                 business_id = self.generate_business_id(
-                    item["business_name"],
-                    f"{item['street_address']}, {item['suburb']} {item['state']} {item['postcode']}",
+                    item.get("business_name", ""),
+                    f"{item.get('street_address', '')}, {item.get('suburb', '')} {item.get('state', '')} {item.get('postcode', '')}",
                 )
 
-                # Create the transformed location
+                # Create the transformed location with default values for missing fields
                 location = TransformedLocation(
-                    business_name=item["business_name"],
-                    street_address=item["street_address"],
-                    suburb=item["suburb"],
-                    state=item["state"],
-                    postcode=item["postcode"],
-                    drive_thru=item["drive_thru"],
-                    shopping_centre_name=item["shopping_centre_name"],
-                    source_url=item["source_url"],
-                    source="gyg",
+                    brand=item.get(
+                        "brand", "Guzman Y Gomez"
+                    ),  # Default brand if missing
+                    business_name=item.get("business_name", ""),
+                    street_address=item.get("street_address", ""),
+                    suburb=item.get("suburb", ""),
+                    state=item.get("state", ""),
+                    postcode=item.get("postcode", ""),
+                    drive_thru=item.get("drive_thru", False),
+                    shopping_centre_name=item.get("shopping_centre_name", ""),
+                    source_url=item.get("source_url", ""),
+                    source=item.get("source", "gyg"),
                     business_id=business_id,
                 )
 
                 transformed_items.append(location.model_dump())
 
             except Exception as e:
-                logger.error(f"Error creating TransformedLocation for GYG item: {e}", exc_info=True)
+                logger.error(
+                    f"Error creating TransformedLocation for GYG item: {e}",
+                    exc_info=True,
+                )
 
         logger.info(f"Transformed {len(transformed_items)} GYG items")
         return transformed_items
@@ -218,14 +252,22 @@ class GygTransformer(TransformerInterface):
         df = pd.DataFrame(items)
 
         # Create new columns for the parsed data if they don't exist
-        required_columns = ["suburb", "state", "postcode", "shopping_centre_name", "street_address"]
+        required_columns = [
+            "suburb",
+            "state",
+            "postcode",
+            "shopping_centre_name",
+            "street_address",
+        ]
         for column in required_columns:
             if column not in df.columns:
                 df[column] = ""
-                
+
         return df
-        
-    def _extract_state_postcode_suburb(self, address: str, index: int, df: pd.DataFrame) -> None:
+
+    def _extract_state_postcode_suburb(
+        self, address: str, index: int, df: pd.DataFrame
+    ) -> None:
         """Extract state, postcode, and suburb from an address."""
         # Fix duplicate state codes (like "VIC VIC")
         address = re.sub(r"([A-Z]{2,3})\s+\1", r"\1", address)
@@ -246,11 +288,13 @@ class GygTransformer(TransformerInterface):
                     r"(Shop|Tenancy|Floor|Level|Unit).*$", "", suburb
                 ).strip()
                 df.at[index, "suburb"] = suburb.upper()
-    
-    def _process_shopping_centre(self, address: str, location_name: str, index: int, df: pd.DataFrame) -> None:
+
+    def _process_shopping_centre(
+        self, address: str, location_name: str, index: int, df: pd.DataFrame
+    ) -> None:
         """Process shopping centre information for a location."""
         known_centers = self._get_known_centers()
-        
+
         # Check if there's a known shopping center for this location
         if location_name in known_centers:
             df.at[index, "shopping_centre_name"] = known_centers[location_name]
@@ -259,10 +303,14 @@ class GygTransformer(TransformerInterface):
         # Check for shopping center in address
         shopping_centre_patterns = self._get_shopping_centre_patterns()
         non_shopping_centers = self._get_non_shopping_centers()
-        shopping_centre_name = self._extract_shopping_centre_name(address, shopping_centre_patterns)
+        shopping_centre_name = self._extract_shopping_centre_name(
+            address, shopping_centre_patterns
+        )
 
         # Check if the extracted name should be excluded
-        if any(non_center in shopping_centre_name for non_center in non_shopping_centers):
+        if any(
+            non_center in shopping_centre_name for non_center in non_shopping_centers
+        ):
             shopping_centre_name = ""
 
         # Special case for addresses with "Stockland"
@@ -276,28 +324,31 @@ class GygTransformer(TransformerInterface):
                     shopping_centre_name += " Shopping Centre"
 
         df.at[index, "shopping_centre_name"] = shopping_centre_name
-    
-    def _extract_street_address(self, address: str, index: int, df: pd.DataFrame, shopping_centre_name: str) -> None:
+
+    def _extract_street_address(
+        self, address: str, index: int, df: pd.DataFrame, shopping_centre_name: str
+    ) -> None:
         """Extract street address from the full address."""
         if df.at[index, "street_address"]:
             return
-            
+
         # Try to extract from raw address
         parts = [p.strip() for p in address.split(",")]
         street_parts = []
         for i, part in enumerate(parts):
             # Stop when we reach suburb or state
-            if (df.at[index, "suburb"] and part.strip() == df.at[index, "suburb"]) or \
-               (df.at[index, "state"] and part.strip().startswith(df.at[index, "state"])):
+            if (df.at[index, "suburb"] and part.strip() == df.at[index, "suburb"]) or (
+                df.at[index, "state"] and part.strip().startswith(df.at[index, "state"])
+            ):
                 break
             # Skip shopping center parts
             if shopping_centre_name and part.strip() in shopping_centre_name:
                 continue
             street_parts.append(part.strip())
-        
+
         if street_parts:
             df.at[index, "street_address"] = ", ".join(street_parts)
-    
+
     def _clean_shopping_centre_names(self, df: pd.DataFrame) -> None:
         """Clean shopping centre names in the dataframe."""
         for index, row in df.iterrows():
@@ -312,7 +363,7 @@ class GygTransformer(TransformerInterface):
                     center_name,
                 )
                 df.at[index, "shopping_centre_name"] = center_name
-    
+
     def _fill_missing_suburbs(self, df: pd.DataFrame) -> None:
         """Fill in missing suburbs using business name."""
         for index, row in df.iterrows():
@@ -320,18 +371,30 @@ class GygTransformer(TransformerInterface):
                 df.at[index, "suburb"] = (
                     row["business_name"].replace("Guzman Y Gomez ", "").upper()
                 )
-    
+
     def _convert_to_list_of_dicts(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
         """Convert dataframe to list of dictionaries with selected fields."""
         processed_items = []
         for _, row in df.iterrows():
-            processed = {k: v for k, v in row.items() if k in [
-                "business_name", "street_address", "suburb", "state", "postcode", 
-                "drive_thru", "shopping_centre_name", "source_url", "source"
-            ]}
+            processed = {
+                k: v
+                for k, v in row.items()
+                if k
+                in [
+                    "business_name",
+                    "street_address",
+                    "suburb",
+                    "state",
+                    "postcode",
+                    "drive_thru",
+                    "shopping_centre_name",
+                    "source_url",
+                    "source",
+                ]
+            }
             processed_items.append(processed)
         return processed_items
-    
+
     def _process_locations(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Process raw locations to extract detailed address components
@@ -350,10 +413,10 @@ class GygTransformer(TransformerInterface):
 
                 # Extract state, postcode and suburb
                 self._extract_state_postcode_suburb(address, index, df)
-                
+
                 # Process shopping centre
                 self._process_shopping_centre(address, location_name, index, df)
-                
+
                 # Extract street address
                 shopping_centre_name = df.at[index, "shopping_centre_name"]
                 self._extract_street_address(address, index, df, shopping_centre_name)
@@ -361,7 +424,7 @@ class GygTransformer(TransformerInterface):
         # Additional processing
         self._fill_missing_suburbs(df)
         self._clean_shopping_centre_names(df)
-        
+
         # Convert to final format
         return self._convert_to_list_of_dicts(df)
 
@@ -376,7 +439,7 @@ class GygTransformer(TransformerInterface):
         states = ["NSW", "VIC", "QLD", "SA", "WA", "TAS", "NT", "ACT"]
 
         last_part = parts[-1].strip()
-        state_postcode_match = re.search(r'([A-Z]{2,3})\s+(\d{4})', last_part)
+        state_postcode_match = re.search(r"([A-Z]{2,3})\s+(\d{4})", last_part)
 
         if state_postcode_match:
             state_candidate = state_postcode_match.group(1)
@@ -397,28 +460,47 @@ class GygTransformer(TransformerInterface):
         """Find shopping centre name in the address parts."""
         # Look for shopping center keywords
         shopping_centre_keywords = [
-            "Shopping Centre", "Plaza", "Mall", "Square", "Arcade",
-            "Food Court", "Centre", "Center", "Westfield"
+            "Shopping Centre",
+            "Plaza",
+            "Mall",
+            "Square",
+            "Arcade",
+            "Food Court",
+            "Centre",
+            "Center",
+            "Westfield",
         ]
 
         for i, part in enumerate(parts):
-            if any(keyword.lower() in part.lower() for keyword in shopping_centre_keywords):
+            if any(
+                keyword.lower() in part.lower() for keyword in shopping_centre_keywords
+            ):
                 name = part
                 # Check if next part is related (e.g., "Level 1")
-                if i + 1 < len(parts) and re.search(r'(level|shop|unit)', parts[i+1].lower()):
+                if i + 1 < len(parts) and re.search(
+                    r"(level|shop|unit)", parts[i + 1].lower()
+                ):
                     name += f", {parts[i+1]}"
                 return {"name": name, "index": i}
 
         return None
 
-    def _extract_street_parts(self, parts: List[str], components: Dict[str, Any], shopping_centre: Optional[Dict[str, Any]]) -> List[str]:
+    def _extract_street_parts(
+        self,
+        parts: List[str],
+        components: Dict[str, Any],
+        shopping_centre: Optional[Dict[str, Any]],
+    ) -> List[str]:
         """Extract street address parts from the address."""
         street_parts = []
 
         for i, part in enumerate(parts):
             # Stop if we reach the suburb, state or shopping center
-            if part == components.get("suburb") or part == components.get("state") or (
-               shopping_centre and part == shopping_centre["name"]):
+            if (
+                part == components.get("suburb")
+                or part == components.get("state")
+                or (shopping_centre and part == shopping_centre["name"])
+            ):
                 break
 
             # Skip if this part is already included in shopping center name
@@ -429,20 +511,27 @@ class GygTransformer(TransformerInterface):
 
         return street_parts
 
-    def _extract_street_from_shopping_centre(self, shopping_centre_name: str) -> Dict[str, Optional[str]]:
+    def _extract_street_from_shopping_centre(
+        self, shopping_centre_name: str
+    ) -> Dict[str, Optional[str]]:
         """Try to extract street address from shopping centre name."""
         result = {"street_address": None, "shopping_centre_name": shopping_centre_name}
 
-        street_match = re.search(r'(\d+[A-Za-z\s\-]+(?:Street|St|Road|Rd|Avenue|Ave|Highway|Hwy|Drive|Dr))',
-                              shopping_centre_name)
+        street_match = re.search(
+            r"(\d+[A-Za-z\s\-]+(?:Street|St|Road|Rd|Avenue|Ave|Highway|Hwy|Drive|Dr))",
+            shopping_centre_name,
+        )
 
         if street_match:
             result["street_address"] = street_match.group(1)
             # Remove the street address from shopping center name
             result["shopping_centre_name"] = shopping_centre_name.replace(
-                result["street_address"], "").strip()
+                result["street_address"], ""
+            ).strip()
             # Clean up
-            result["shopping_centre_name"] = re.sub(r'^,\s*|\s*,\s*$', '', result["shopping_centre_name"])
+            result["shopping_centre_name"] = re.sub(
+                r"^,\s*|\s*,\s*$", "", result["shopping_centre_name"]
+            )
 
         return result
 
@@ -453,7 +542,7 @@ class GygTransformer(TransformerInterface):
             "suburb": None,
             "state": None,
             "postcode": None,
-            "shopping_centre_name": None
+            "shopping_centre_name": None,
         }
 
         if not address:
@@ -480,7 +569,9 @@ class GygTransformer(TransformerInterface):
 
         # If no street address found but we have a shopping center, see if it contains a street address
         if not components["street_address"] and components["shopping_centre_name"]:
-            street_result = self._extract_street_from_shopping_centre(components["shopping_centre_name"])
+            street_result = self._extract_street_from_shopping_centre(
+                components["shopping_centre_name"]
+            )
             components["street_address"] = street_result["street_address"]
             components["shopping_centre_name"] = street_result["shopping_centre_name"]
 

@@ -8,11 +8,13 @@ from scraper_system.models.location import TransformedLocation
 
 logger = logging.getLogger(__name__)
 
+
 class NoodleboxTransformer(TransformerInterface):
     """
     Transformer for Noodlebox data.
     Responsible for transforming raw data into final format.
     """
+
     # Direct, explicit mapping for every business name directly to correct suburb
     BUSINESS_NAME_TO_SUBURB = {
         "Malvern": "MALVERN",
@@ -81,7 +83,7 @@ class NoodleboxTransformer(TransformerInterface):
         "BALLARAT NORTH": "VIC",
         "BENDIGO": "VIC",
         "CHIRNSIDE PARK": "VIC",
-        "COBURG": "VIC", 
+        "COBURG": "VIC",
         "CORIO": "VIC",
         "CRAIGIEBURN": "VIC",
         "CRANBOURNE": "VIC",
@@ -134,7 +136,9 @@ class NoodleboxTransformer(TransformerInterface):
         "IDALIA": "QLD",
     }
 
-    async def transform(self, data: List[Dict[str, Any]], config: Dict[str, Any], site_name: str) -> List[Dict[str, Any]]:
+    async def transform(
+        self, data: List[Dict[str, Any]], config: Dict[str, Any], site_name: str
+    ) -> List[Dict[str, Any]]:
         """
         Transforms raw scraped data from Noodlebox parser.
         """
@@ -147,6 +151,7 @@ class NoodleboxTransformer(TransformerInterface):
         for item in data:
             try:
                 # Extract raw data
+                brand = item.get("brand", "")
                 business_name = item.get("business_name", "")
                 raw_address = item.get("raw_address", "")
                 drive_thru = item.get("drive_thru", False)
@@ -178,7 +183,9 @@ class NoodleboxTransformer(TransformerInterface):
                     state = self.SUBURB_TO_STATE[suburb]
                 else:
                     # Try to extract state from address
-                    state_match = re.search(r'\b(NSW|VIC|QLD|SA|WA|TAS|NT|ACT)\b', raw_address)
+                    state_match = re.search(
+                        r"\b(NSW|VIC|QLD|SA|WA|TAS|NT|ACT)\b", raw_address
+                    )
                     if state_match:
                         state = state_match.group(1)
                     else:
@@ -190,7 +197,7 @@ class NoodleboxTransformer(TransformerInterface):
                             "SOUTH AUSTRALIA": "SA",
                             "WESTERN AUSTRALIA": "WA",
                             "TASMANIA": "TAS",
-                            "NORTHERN TERRITORY": "NT"
+                            "NORTHERN TERRITORY": "NT",
                         }
                         for full_name, abbr in state_names.items():
                             if full_name in raw_address.upper():
@@ -199,7 +206,7 @@ class NoodleboxTransformer(TransformerInterface):
 
                 # Extract postcode
                 postcode = None
-                postcode_match = re.search(r'\b(\d{4})\b', raw_address)
+                postcode_match = re.search(r"\b(\d{4})\b", raw_address)
                 if postcode_match:
                     postcode = postcode_match.group(1)
 
@@ -214,6 +221,7 @@ class NoodleboxTransformer(TransformerInterface):
 
                 # Create the transformed location
                 location = TransformedLocation(
+                    brand=brand,
                     business_name=business_name,
                     street_address=street_address,
                     suburb=suburb,
@@ -243,7 +251,7 @@ class NoodleboxTransformer(TransformerInterface):
         patterns = [
             r"((?:[\w\s]+)(?:Shopping Centre|Plaza|Mall|Centre|Square|Marketplace))",
             r"(Westfield\s+[\w\s]+)",
-            r"(Stockland\s+[\w\s]+)"
+            r"(Stockland\s+[\w\s]+)",
         ]
 
         for pattern in patterns:
@@ -294,11 +302,11 @@ class NoodleboxTransformer(TransformerInterface):
             result = re.sub(phrase, "", result, flags=re.IGNORECASE)
 
         # Clean up address components
-        address_pattern = r'\d+[/-]?\d*\s+[A-Za-z]+\s+(?:Street|St|Road|Rd|Avenue|Ave|Highway|Hwy|Drive|Dr|Boulevard|Blvd)'
-        result = re.sub(address_pattern, '', result, flags=re.IGNORECASE)
+        address_pattern = r"\d+[/-]?\d*\s+[A-Za-z]+\s+(?:Street|St|Road|Rd|Avenue|Ave|Highway|Hwy|Drive|Dr|Boulevard|Blvd)"
+        result = re.sub(address_pattern, "", result, flags=re.IGNORECASE)
 
         # Remove suburb names and state/postcode at the end
-        result = re.sub(r'\s+[A-Z]{2,3}\s+\d{4}$', '', result)
+        result = re.sub(r"\s+[A-Z]{2,3}\s+\d{4}$", "", result)
 
         # Clean up any remaining commas, extra spaces, etc.
         result = result.strip().rstrip(",").strip()

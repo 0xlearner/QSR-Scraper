@@ -137,6 +137,7 @@ class GrilldParser(ParserInterface):
 
             # Return the basic scraped data
             return {
+                "brand": "Grill'd",
                 "business_name": name or "Grill'd",
                 "address": address,  # Raw address for transformation
                 "drive_thru": has_drive_thru,

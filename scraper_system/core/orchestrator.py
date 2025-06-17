@@ -20,14 +20,15 @@ class Orchestrator:
             "max_concurrent_workers", 5
         )  # Default concurrency
         self.plugin_factory = PluginFactory(config)
+        self.storage_plugins = []  # Track active storage plugins
 
     def _load_and_validate_plugins(self, site_name: str, site_config: Dict[str, Any]):
-            """Load and validate plugins using the plugin factory"""
-            try:
-                return self.plugin_factory.create_plugins_for_site(site_name, site_config)
-            except Exception as e:
-                logger.error(f"Failed to load plugins for site '{site_name}': {e}")
-                return None
+        """Load and validate plugins using the plugin factory"""
+        try:
+            return self.plugin_factory.create_plugins_for_site(site_name, site_config)
+        except Exception as e:
+            logger.error(f"Failed to load plugins for site '{site_name}': {e}")
+            return None
 
     async def _scrape_url(
         self,
@@ -135,6 +136,15 @@ class Orchestrator:
             logger.warning(
                 f"No storage plugins available to store data for site '{site_name}'"
             )
+
+        # Close storage connections after use
+        close_tasks = []
+        for storage in storage_plugins:
+            if hasattr(storage, "close") and callable(storage.close):
+                close_tasks.append(asyncio.ensure_future(storage.close()))
+
+        if close_tasks:
+            await asyncio.gather(*close_tasks, return_exceptions=True)
 
     # --- Refactored Helper Methods ---
 
@@ -396,3 +406,15 @@ class Orchestrator:
             await asyncio.gather(*website_tasks)
 
         logger.info("Orchestrator finished.")
+
+    async def cleanup(self):
+        """Cleanup resources and close connections."""
+        if self.storage_plugins:
+            close_tasks = []
+            for storage in self.storage_plugins:
+                if hasattr(storage, "close") and callable(storage.close):
+                    close_tasks.append(asyncio.create_task(storage.close()))
+
+            if close_tasks:
+                await asyncio.gather(*close_tasks, return_exceptions=True)
+                logger.info("Closed all storage connections")

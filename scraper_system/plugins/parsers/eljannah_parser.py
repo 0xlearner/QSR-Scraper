@@ -151,6 +151,11 @@ class EljannahParser(ParserInterface):
                         # Clean up name (remove "| The Best Charcoal & Fried Chicken" part)
                         if "|" in name:
                             name = name.split("|")[0].strip()
+
+                        # Further clean up names like "Nowra - El Jannah - Legendary Charcoal Chicken"
+                        if " - El Jannah" in name:
+                            location = name.split(" - ")[0].strip()
+                            name = f"El Jannah {location}"
                     else:
                         # Fallback to HTML extraction if LD+JSON doesn't have name
                         name_node = tree.css_first(
@@ -187,6 +192,7 @@ class EljannahParser(ParserInterface):
 
                     # Return basic data for transformation
                     return {
+                        "brand": "El Jannah",
                         "business_name": name,
                         "street_address": street_address,
                         "suburb": suburb,

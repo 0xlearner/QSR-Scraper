@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import urllib.parse
 from typing import Optional, Tuple, Dict, Any
 import httpx
 from scraper_system.interfaces.fetcher_interface import FetcherInterface
@@ -9,10 +10,11 @@ logger = logging.getLogger(__name__)
 
 class AsyncHTTPXFetcher(FetcherInterface):
     """
-    Fetches web content asynchronously using httpx, with optional ScraperAPI proxy support.
+    Fetches web content asynchronously using httpx, with IPRoyal proxy support.
     """
 
-    SCRAPERAPI_ENDPOINT = "https://api.scraperapi.com"
+    IPROYAL_PROXY_HOST = "geo.iproyal.com"
+    IPROYAL_PROXY_PORT = "12321"
 
     def __init__(self, config: Dict[str, Any] = None):
         """
@@ -24,22 +26,33 @@ class AsyncHTTPXFetcher(FetcherInterface):
         """
         self.default_config = config or {}
 
+    def _build_proxy_url(self, username: str, password: str) -> str:
+        """
+        Builds the proxy URL with encoded credentials.
+
+        Args:
+            username: IPRoyal username
+            password: IPRoyal password (including any country codes)
+        """
+        encoded_username = urllib.parse.quote(username)
+        encoded_password = urllib.parse.quote(password)
+        return f"http://{encoded_username}:{encoded_password}@{self.IPROYAL_PROXY_HOST}:{self.IPROYAL_PROXY_PORT}"
+
     async def fetch(
         self, url: str, config: Dict[str, Any] = None
     ) -> Tuple[Optional[str], Optional[str], Optional[int]]:
         """
-        Fetches content using httpx, optionally via ScraperAPI.
+        Fetches content using httpx via IPRoyal proxy.
 
         Config options:
-        - headers (dict): Headers to send with the request. Will be forwarded by ScraperAPI if used.
-        - timeout (int): Request timeout in seconds (default: 30). Applies to the connection to ScraperAPI or the direct site.
-        - use_scraperapi (bool): Set to True to use ScraperAPI (default: False).
-        - scraperapi_key (str): Your ScraperAPI API key (required if use_scraperapi is True).
-        - scraperapi_options (dict): Additional parameters for the ScraperAPI request
-                                      (e.g., {'country_code': 'us', 'render': 'true'}).
-        - max_retries (int): Maximum number of retry attempts for transient errors (default: 3).
-        - retry_delay (float): Base delay between retries in seconds (default: 1.0).
-        - retry_backoff (float): Multiplier for exponential backoff between retries (default: 2.0).
+        - headers (dict): Headers to send with the request
+        - timeout (int): Request timeout in seconds (default: 30)
+        - use_proxy (bool): Set to True to use IPRoyal proxy (default: False)
+        - proxy_username (str): Your IPRoyal username (required if use_proxy is True)
+        - proxy_password (str): Your IPRoyal password with optional country code (required if use_proxy is True)
+        - max_retries (int): Maximum number of retry attempts for transient errors (default: 3)
+        - retry_delay (float): Base delay between retries in seconds (default: 1.0)
+        - retry_backoff (float): Multiplier for exponential backoff between retries (default: 2.0)
         """
         # Merge default config with request-specific config
         merged_config = {**self.default_config}
@@ -56,50 +69,45 @@ class AsyncHTTPXFetcher(FetcherInterface):
 
         headers = merged_config.get("headers", {})
         timeout = merged_config.get("timeout", 30)
-        use_scraperapi = merged_config.get("use_scraperapi", False)
-        scraperapi_key = merged_config.get("scraperapi_key")
-        scraperapi_options = merged_config.get("scraperapi_options", {})
-        
+        use_proxy = merged_config.get("use_proxy", False)
+        proxy_username = merged_config.get("proxy_username")
+        proxy_password = merged_config.get("proxy_password")
+
         # Retry configuration
         max_retries = merged_config.get("max_retries", 3)
         retry_delay = merged_config.get("retry_delay", 1.0)
         retry_backoff = merged_config.get("retry_backoff", 2.0)
 
-        request_url = url
-        params = None
-        log_target = url  # For logging purposes
+        log_target = url
+        proxy_url = None
 
-        if use_scraperapi:
-            if not scraperapi_key:
+        if use_proxy:
+            if not proxy_username or not proxy_password:
                 logger.error(
-                    "ScraperAPI is enabled ('use_scraperapi': True) but 'scraperapi_key' is missing in config."
+                    "IPRoyal proxy is enabled but 'proxy_username' or 'proxy_password' is missing in config."
                 )
                 return None, None, None
 
-            request_url = self.SCRAPERAPI_ENDPOINT
-            # Base ScraperAPI parameters
-            params = {
-                "api_key": scraperapi_key,
-                "url": url,  # Pass the original target URL to ScraperAPI
-            }
-            # Add any extra options provided
-            params.update(scraperapi_options)
-
-            log_target = f"{url} (via ScraperAPI)"
-            logger.debug(
-                f"Routing fetch for {url} through ScraperAPI with params: { {k: v for k, v in params.items() if k != 'api_key'} }"
-            )  # Don't log api key
-
+            proxy_url = self._build_proxy_url(proxy_username, proxy_password)
+            log_target = f"{url} (via IPRoyal proxy)"
+            logger.debug(f"Routing fetch for {url} through IPRoyal proxy")
         else:
             logger.debug(f"Fetching URL directly: {url}")
 
         retry_count = 0
         while retry_count <= max_retries:
             try:
-                async with httpx.AsyncClient(
-                    headers=headers, timeout=timeout, follow_redirects=True
-                ) as client:
-                    response = await client.get(request_url, params=params)
+                client_kwargs = {
+                    "headers": headers,
+                    "timeout": timeout,
+                    "follow_redirects": True,
+                }
+
+                if proxy_url:
+                    client_kwargs["proxy"] = proxy_url
+
+                async with httpx.AsyncClient(**client_kwargs) as client:
+                    response = await client.get(url)
                     response.raise_for_status()
 
                     content_type = response.headers.get("content-type", "").lower()
@@ -111,7 +119,14 @@ class AsyncHTTPXFetcher(FetcherInterface):
                     )
                     return content, content_type, status_code
 
-            except (httpx.RequestError, httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ReadError, httpx.ConnectError, httpx.RemoteProtocolError) as e:
+            except (
+                httpx.RequestError,
+                httpx.ReadTimeout,
+                httpx.ConnectTimeout,
+                httpx.ReadError,
+                httpx.ConnectError,
+                httpx.RemoteProtocolError,
+            ) as e:
                 retry_count += 1
                 if retry_count <= max_retries:
                     # Calculate exponential backoff delay
