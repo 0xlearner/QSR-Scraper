@@ -48,6 +48,8 @@ class PluginFactory:
         special_cases = {
             "AsyncHTTPXFetcher": "http_fetcher",
             "GYGParser": "gyg_parser",
+            "NandosParser": "nandos_parser",
+            "NandosTransformer": "nandos_transformer",
             "JSONStorage": "json_storage"
         }
 
