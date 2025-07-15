@@ -208,7 +208,7 @@ websites:
           connection_string: "${DATABASE_URL}"
 
   zambrero:
-    enabled: true
+    enabled: false
     start_urls:
       - https://www.zambrero.com.au/locations # Base URL (not directly used by parser)
     fetcher: AsyncHTTPXFetcher
@@ -233,5 +233,34 @@ websites:
       storage_options:
         JSONStorage:
           output_file: "data/zambrero_locations.jsonl"
+        PostgresStorage:
+          connection_string: "${DATABASE_URL}"
+
+  zeus_street_greek:
+    enabled: true
+    start_urls:
+      - https://zeusstreetgreek.com.au/order-online/
+    fetcher: AsyncHTTPXFetcher
+    parser: ZeusParser
+    transformer: ZeusTransformer
+    storage: [JSONStorage, PostgresStorage]
+    config:
+      fetcher_options:
+        headers:
+          User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+        timeout: 30
+      # Options for detail page fetches
+      detail_fetcher_options:
+        timeout: 45
+        max_retries: 3
+        headers:
+          User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+      parser_options:
+        max_concurrent_requests: 8 # Limit concurrent requests to avoid overwhelming the server
+      storage_options:
+        JSONStorage:
+          output_file: "data/zeus_locations.jsonl"
         PostgresStorage:
           connection_string: "${DATABASE_URL}"

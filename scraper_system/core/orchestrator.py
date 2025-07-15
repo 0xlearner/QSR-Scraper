@@ -44,23 +44,52 @@ class Orchestrator:
         Scrapes a single URL, parses, transforms, and stores the data.
         """
         logger.info(f"Starting scrape process for entry URL: {url} (Site: {site_name})")
-        parser_config = site_config.get("config", {})
-        transformer_config = site_config.get("config", {}).get(
-            "transformer_options", {}
-        )
-        storage_configs = site_config.get("config", {}).get("storage_options", {})
 
-        # Add the initial fetch here
-        fetcher_config = site_config.get("config", {}).get("fetcher_options", {})
+        # Extract configurations
+        configs = self._extract_configs(site_config)
+
+        # Fetch initial content
+        content, content_type = await self._fetch_content(url, site_name, fetcher, configs["fetcher"])
+        if not content:
+            return
+
+        # Parse content
+        parsed_data = await self._parse_content(content, content_type, parser, site_name, configs["parser"])
+        if not parsed_data:
+            return
+
+        # Transform data if transformer is available
+        data_to_store = await self._transform_data(parsed_data, transformer, site_name, configs["transformer"])
+        if not data_to_store:
+            return
+
+        # Store data
+        await self._store_data(data_to_store, storage_plugins, site_name, configs["storage"])
+
+    def _extract_configs(self, site_config: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+        """Extract all configuration options from site config."""
+        config = site_config.get("config", {})
+        return {
+            "parser": config,
+            "transformer": config.get("transformer_options", {}),
+            "storage": config.get("storage_options", {}),
+            "fetcher": config.get("fetcher_options", {})
+        }
+
+    async def _fetch_content(self, url: str, site_name: str, fetcher: FetcherInterface, fetcher_config: Dict[str, Any]) -> tuple:
+        """Fetch content from URL."""
         content, content_type, status_code = await fetcher.fetch(url, fetcher_config)
 
         if not content:
             logger.error(
                 f"Failed to fetch initial content from {url} for site '{site_name}' (Status: {status_code})"
             )
-            return
+            return None, None
 
-        # --- Parse ---
+        return content, content_type
+
+    async def _parse_content(self, content: str, content_type: str, parser: ParserInterface, site_name: str, parser_config: Dict[str, Any]):
+        """Parse content using the parser."""
         try:
             parsed_data = await parser.parse(
                 content=content, content_type=content_type, config=parser_config
@@ -69,50 +98,66 @@ class Orchestrator:
                 logger.info(
                     f"Parser {parser.__class__.__name__} found no data for site '{site_name}'."
                 )
-                return
+                return None
+
             logger.info(
                 f"Parser {parser.__class__.__name__} returned {len(parsed_data)} raw items for site '{site_name}'"
             )
+            return parsed_data
+
         except Exception as e:
             logger.error(
                 f"Parser execution failed for site '{site_name}': {e}", exc_info=True
             )
-            return
+            return None
 
-        # --- Transform (if transformer is configured) ---
-        data_to_store = parsed_data  # Default to parsed data
-        if transformer:
-            try:
-                transformed_data = await transformer.transform(
-                    parsed_data, transformer_config, site_name
-                )
-                if not transformed_data:
-                    logger.info(
-                        f"Transformer returned no data for items from site '{site_name}'."
-                    )
-                    return
-                logger.info(
-                    f"Transformer processed data, resulting in {len(transformed_data)} items from site '{site_name}'"
-                )
-                data_to_store = transformed_data
-            except Exception as e:
-                logger.error(
-                    f"Transformer execution failed for data from site '{site_name}': {e}",
-                    exc_info=True,
-                )
-                return
-        else:
+    async def _transform_data(self, parsed_data, transformer: Optional[TransformerInterface], site_name: str, transformer_config: Dict[str, Any]):
+        """Transform parsed data if transformer is available."""
+        if not transformer:
             logger.debug(
                 f"No transformer configured for site '{site_name}', using raw parsed data."
             )
+            return parsed_data
 
-        # --- Store ---
+        try:
+            transformed_data = await transformer.transform(
+                parsed_data, transformer_config, site_name
+            )
+            if not transformed_data:
+                logger.info(
+                    f"Transformer returned no data for items from site '{site_name}'."
+                )
+                return None
+
+            logger.info(
+                f"Transformer processed data, resulting in {len(transformed_data)} items from site '{site_name}'"
+            )
+            return transformed_data
+
+        except Exception as e:
+            logger.error(
+                f"Transformer execution failed for data from site '{site_name}': {e}",
+                exc_info=True,
+            )
+            return None
+
+    async def _store_data(self, data_to_store, storage_plugins: List[StorageInterface], site_name: str, storage_configs: Dict[str, Any]):
+        """Store data using storage plugins."""
         if not data_to_store:
             logger.warning(
                 f"No data left to store for site '{site_name}' after parsing/transformation."
             )
             return
 
+        # Execute storage operations
+        await self._execute_storage_operations(data_to_store, storage_plugins, storage_configs)
+        logger.info(f"Finished storing data originating from site: {site_name}")
+
+        # Close storage connections
+        await self._close_storage_connections(storage_plugins)
+
+    async def _execute_storage_operations(self, data_to_store, storage_plugins: List[StorageInterface], storage_configs: Dict[str, Any]):
+        """Execute storage operations for all storage plugins."""
         store_tasks = []
         for storage in storage_plugins:
             storage_name = storage.__class__.__name__
@@ -131,13 +176,13 @@ class Orchestrator:
                         f"Storage plugin {storage_plugins[idx].__class__.__name__} failed: {result}",
                         exc_info=False,
                     )
-            logger.info(f"Finished storing data originating from site: {site_name}")
         else:
             logger.warning(
-                f"No storage plugins available to store data for site '{site_name}'"
+                "No storage plugins available to store data"
             )
 
-        # Close storage connections after use
+    async def _close_storage_connections(self, storage_plugins: List[StorageInterface]):
+        """Close storage connections after use."""
         close_tasks = []
         for storage in storage_plugins:
             if hasattr(storage, "close") and callable(storage.close):

@@ -52,6 +52,8 @@ class PluginFactory:
             "NandosTransformer": "nandos_transformer",
             "ZambreroParser": "zambrero_parser",
             "ZambreroTransformer": "zambrero_transformer",
+            "ZeusParser": "zeus_parser",
+            "ZeusTransformer": "zeus_transformer",
             "JSONStorage": "json_storage"
         }
 
