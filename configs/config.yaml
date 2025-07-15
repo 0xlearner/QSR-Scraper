@@ -4,182 +4,182 @@ global_settings:
   log_level: INFO # Logging level (DEBUG, INFO, WARNING, ERROR)
   log_to_file: true # Whether to log to a file in the logs directory
 websites:
-  # grilld_restaurants:
-  #   enabled: true
-  #   start_urls:
-  #     - https://grilld.com.au/restaurants # The main listing page
-  #   fetcher: AsyncHTTPXFetcher # Used for the initial fetch AND detail fetches
-  #   parser: GrilldParser # Use the custom parser
-  #   transformer: GrilldTransformer
-  #   storage: [PostgresStorage] # Store the results
-  #   config:
-  #     # Options for BOTH initial and detail fetches (unless overridden)
-  #     fetcher_options:
-  #       headers:
-  #         User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-  #         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
-  #       timeout: 30
-  #     # Optional: Define different options specifically for detail page fetches
-  #     # detail_fetcher_options:
-  #     #   timeout: 15
-  #     #   headers: ...
+  grilld_restaurants:
+    enabled: false
+    start_urls:
+      - https://grilld.com.au/restaurants # The main listing page
+    fetcher: AsyncHTTPXFetcher # Used for the initial fetch AND detail fetches
+    parser: GrilldParser # Use the custom parser
+    transformer: GrilldTransformer
+    storage: [PostgresStorage] # Store the results
+    config:
+      # Options for BOTH initial and detail fetches (unless overridden)
+      fetcher_options:
+        headers:
+          User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+        timeout: 30
+      # Optional: Define different options specifically for detail page fetches
+      # detail_fetcher_options:
+      #   timeout: 15
+      #   headers: ...
 
-  #     storage_options:
-  #       JSONStorage:
-  #         output_file: "data/grilld_locations.jsonl"
-  #       PostgresStorage:
-  #         connection_string: "${DATABASE_URL}" # Use Heroku Postgres connection string from environment variable
+      storage_options:
+        JSONStorage:
+          output_file: "data/grilld_locations.jsonl"
+        PostgresStorage:
+          connection_string: "${DATABASE_URL}" # Use Heroku Postgres connection string from environment variable
 
-  # guzman_y_gomez:
-  #   enabled: true
-  #   start_urls:
-  #     - https://www.guzmanygomez.com.au/locations/
-  #   fetcher: AsyncHTTPXFetcher
-  #   parser: GygParser
-  #   transformer: GygTransformer
-  #   storage: [PostgresStorage]
-  #   config:
-  #     fetcher_options:
-  #       headers:
-  #         User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-  #         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
-  #       timeout: 30
-  #       use_scraperapi: false # Set to false due to low google success rates for now.
-  #       scraperapi_key: ${SCRAPERAPI_KEY}
-  #       scraperapi_options: # Optional dictionary for extra ScraperAPI params
-  #         country_code: "au" # Example: Request Australian IPs
-  #         # render: "true"                     # Example: Uncomment to enable JS rendering (slower, costs more credits)
-  #         # premium: "true"                    # Example: Uncomment to use premium proxies (if needed, costs more)
-  #         keep_headers: "true"
-  #     storage_options:
-  #       JSONStorage:
-  #         output_file: "data/gyg_locations.jsonl"
-  #       PostgresStorage:
-  #         connection_string: "${DATABASE_URL}"
+  guzman_y_gomez:
+    enabled: false
+    start_urls:
+      - https://www.guzmanygomez.com.au/locations/
+    fetcher: AsyncHTTPXFetcher
+    parser: GygParser
+    transformer: GygTransformer
+    storage: [PostgresStorage]
+    config:
+      fetcher_options:
+        headers:
+          User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+        timeout: 30
+        use_scraperapi: false # Set to false due to low google success rates for now.
+        scraperapi_key: ${SCRAPERAPI_KEY}
+        scraperapi_options: # Optional dictionary for extra ScraperAPI params
+          country_code: "au" # Example: Request Australian IPs
+          # render: "true"                     # Example: Uncomment to enable JS rendering (slower, costs more credits)
+          # premium: "true"                    # Example: Uncomment to use premium proxies (if needed, costs more)
+          keep_headers: "true"
+      storage_options:
+        JSONStorage:
+          output_file: "data/gyg_locations.jsonl"
+        PostgresStorage:
+          connection_string: "${DATABASE_URL}"
 
-  # eljannah:
-  #   enabled: true
-  #   start_urls:
-  #     - https://eljannah.com.au/locations/
-  #   fetcher: AsyncHTTPXFetcher
-  #   parser: EljannahParser
-  #   transformer: EljannahTransformer
-  #   storage: [PostgresStorage]
-  #   config:
-  #     fetcher_options:
-  #       headers:
-  #         User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-  #         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
-  #       timeout: 30
-  #     storage_options:
-  #       JSONStorage:
-  #         output_file: "data/eljannah_locations.jsonl"
-  #       PostgresStorage:
-  #         connection_string: "${DATABASE_URL}"
+  eljannah:
+    enabled: false
+    start_urls:
+      - https://eljannah.com.au/locations/
+    fetcher: AsyncHTTPXFetcher
+    parser: EljannahParser
+    transformer: EljannahTransformer
+    storage: [PostgresStorage]
+    config:
+      fetcher_options:
+        headers:
+          User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+        timeout: 30
+      storage_options:
+        JSONStorage:
+          output_file: "data/eljannah_locations.jsonl"
+        PostgresStorage:
+          connection_string: "${DATABASE_URL}"
 
-  # kfc_au:
-  #   enabled: true
-  #   # start_urls: # Not needed by KfcParser
-  #   fetcher: AsyncHTTPXFetcher
-  #   parser: KfcParser
-  #   storage: [PostgresStorage]
-  #   config: # Site-specific configuration passed down to plugins
-  #     fetcher_options:
-  #       # --- Standard Fetcher Options (applied generally, can be overridden by api_settings) ---
-  #       timeout: 30
-  #       max_retries: 2
-  #       use_proxy: true # Set to false due to low google success rates for now.
-  #       proxy_username: ${IPROYAL_USERNAME}
-  #       proxy_password: ${IPROYAL_PASSWORD}
+  kfc_au:
+    enabled: false
+    # start_urls: # Not needed by KfcParser
+    fetcher: AsyncHTTPXFetcher
+    parser: KfcParser
+    storage: [PostgresStorage]
+    config: # Site-specific configuration passed down to plugins
+      fetcher_options:
+        # --- Standard Fetcher Options (applied generally, can be overridden by api_settings) ---
+        timeout: 30
+        max_retries: 2
+        use_proxy: true # Set to false due to low google success rates for now.
+        proxy_username: ${IPROYAL_USERNAME}
+        proxy_password: ${IPROYAL_PASSWORD}
 
-  #     parser_options: # Options specific to the KfcParser logic
-  #       grid_rows: 15 # Increased grid density
-  #       grid_cols: 15 # Increased grid density
-  #       search_radius_km: 50
-  #       search_query: "KFC"
+      parser_options: # Options specific to the KfcParser logic
+        grid_rows: 15 # Increased grid density
+        grid_cols: 15 # Increased grid density
+        search_radius_km: 50
+        search_query: "KFC"
 
-  #     api_settings: # Settings specific to the Google Maps API calls made by KfcParser
-  #       # No URL needed here as it's constructed dynamically
-  #       headers: # Headers specific to the Google Maps search request
-  #         accept: "*/*"
-  #         accept-language: "en-US,en;q=0.9"
-  #         downlink: "6.2"
-  #         referer: "https://www.google.com/"
-  #         rtt: "100"
-  #         sec-ch-ua: '"Google Chrome";v="135", "Not-A.Brand";v="8", "Chromium";v="135"'
-  #         sec-ch-ua-mobile: "?0"
-  #         sec-ch-ua-platform: '"Linux"'
-  #         sec-fetch-dest: "empty"
-  #         sec-fetch-mode: "cors"
-  #         sec-fetch-site: "same-origin"
-  #         user-agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36" # Can override fetcher_options one if needed
-  #         x-client-data: "CJW2yQEIpLbJAQipncoBCODhygEIlKHLAQiVo8sBCIegzQEIvNXOAQj8284BCLnnzgEIlejOAQjT7c4BGKjmzgEYqerOAQ==" # Highly dynamic, likely safer to omit
-  #         x-maps-diversion-context-bin: "CAE=" # Dynamic, likely safer to omit
+      api_settings: # Settings specific to the Google Maps API calls made by KfcParser
+        # No URL needed here as it's constructed dynamically
+        headers: # Headers specific to the Google Maps search request
+          accept: "*/*"
+          accept-language: "en-US,en;q=0.9"
+          downlink: "6.2"
+          referer: "https://www.google.com/"
+          rtt: "100"
+          sec-ch-ua: '"Google Chrome";v="135", "Not-A.Brand";v="8", "Chromium";v="135"'
+          sec-ch-ua-mobile: "?0"
+          sec-ch-ua-platform: '"Linux"'
+          sec-fetch-dest: "empty"
+          sec-fetch-mode: "cors"
+          sec-fetch-site: "same-origin"
+          user-agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36" # Can override fetcher_options one if needed
+          x-client-data: "CJW2yQEIpLbJAQipncoBCODhygEIlKHLAQiVo8sBCIegzQEIvNXOAQj8284BCLnnzgEIlejOAQjT7c4BGKjmzgEYqerOAQ==" # Highly dynamic, likely safer to omit
+          x-maps-diversion-context-bin: "CAE=" # Dynamic, likely safer to omit
 
-  #       # KFC API specific headers
-  #       kfc_api_headers:
-  #         accept: "application/json"
-  #         accept-language: "en-US,en;q=0.5"
-  #         app-source: "web"
-  #         origin: "https://www.kfc.com.au"
-  #         priority: "u=1, i"
-  #         sec-ch-ua: '"Chromium";v="136", "Brave";v="136", "Not.A/Brand";v="99"'
-  #         sec-ch-ua-mobile: "?0"
-  #         sec-ch-ua-platform: '"Linux"'
-  #         sec-fetch-dest: "empty"
-  #         sec-fetch-mode: "cors"
-  #         sec-fetch-site: "cross-site"
-  #         sec-gpc: "1"
-  #         user-agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
-  #         x-correlation-request-id: "4e78785a-441b-44cc-8c10-b23214497f3f"
-  #         x-correlation-session-id: "7e45b66e-d771-43bd-8db8-5966fdfdb77c"
-  #         x-tenant-id: "afd3813afa364270bfd33f0a8d77252d"
-  #     storage_options:
-  #       JSONStorage:
-  #         output_file: "data/kfc_locations.jsonl"
-  #       PostgresStorage:
-  #         connection_string: "${DATABASE_URL}"
+        # KFC API specific headers
+        kfc_api_headers:
+          accept: "application/json"
+          accept-language: "en-US,en;q=0.5"
+          app-source: "web"
+          origin: "https://www.kfc.com.au"
+          priority: "u=1, i"
+          sec-ch-ua: '"Chromium";v="136", "Brave";v="136", "Not.A/Brand";v="99"'
+          sec-ch-ua-mobile: "?0"
+          sec-ch-ua-platform: '"Linux"'
+          sec-fetch-dest: "empty"
+          sec-fetch-mode: "cors"
+          sec-fetch-site: "cross-site"
+          sec-gpc: "1"
+          user-agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+          x-correlation-request-id: "4e78785a-441b-44cc-8c10-b23214497f3f"
+          x-correlation-session-id: "7e45b66e-d771-43bd-8db8-5966fdfdb77c"
+          x-tenant-id: "afd3813afa364270bfd33f0a8d77252d"
+      storage_options:
+        JSONStorage:
+          output_file: "data/kfc_locations.jsonl"
+        PostgresStorage:
+          connection_string: "${DATABASE_URL}"
 
-  # noodlebox:
-  #   enabled: true
-  #   # start_urls are ignored by NoodleboxParser, but keep one for the loop structure
-  #   start_urls:
-  #     - https://www.noodlebox.com.au/locations # This URL isn't fetched by the parser itself
-  #   fetcher: AsyncHTTPXFetcher # Required for instantiation
-  #   parser: NoodleboxParser
-  #   transformer: NoodleboxTransformer
-  #   storage: [PostgresStorage]
-  #   config: # Site-specific config passed to plugins
-  #     fetcher_options: # Global options for the fetcher
-  #       timeout: 45
-  #       # Add any global headers if needed, API-specific ones are below
-  #     parser_options: {} # No specific options needed for NoodleboxParser itself
-  #     api_settings: # Settings specific to the Noodlebox API call
-  #       url: "https://www.noodlebox.com.au/data/locations"
-  #       headers:
-  #         accept: "application/json, text/javascript, */*; q=0.01"
-  #         accept-language: "en-US,en;q=0.9"
-  #         origin: "https://www.noodlebox.com.au"
-  #         priority: "u=1, i"
-  #         referer: "https://www.noodlebox.com.au/locations"
-  #         sec-ch-ua: '"Brave";v="135", "Not-A.Brand";v="8", "Chromium";v="135"'
-  #         sec-ch-ua-mobile: "?0"
-  #         sec-ch-ua-platform: '"Linux"'
-  #         sec-fetch-dest: "empty"
-  #         sec-fetch-mode: "cors"
-  #         sec-fetch-site: "same-origin"
-  #         sec-gpc: "1"
-  #         user-agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
-  #         x-requested-with: "XMLHttpRequest"
-  #       payload: {} # Empty payload for this API call
-  #     storage_options:
-  #       JSONStorage:
-  #         output_file: "data/noodlebox_locations.jsonl"
-  #       PostgresStorage:
-  #         connection_string: "${DATABASE_URL}"
+  noodlebox:
+    enabled: false
+    # start_urls are ignored by NoodleboxParser, but keep one for the loop structure
+    start_urls:
+      - https://www.noodlebox.com.au/locations # This URL isn't fetched by the parser itself
+    fetcher: AsyncHTTPXFetcher # Required for instantiation
+    parser: NoodleboxParser
+    transformer: NoodleboxTransformer
+    storage: [PostgresStorage]
+    config: # Site-specific config passed to plugins
+      fetcher_options: # Global options for the fetcher
+        timeout: 45
+        # Add any global headers if needed, API-specific ones are below
+      parser_options: {} # No specific options needed for NoodleboxParser itself
+      api_settings: # Settings specific to the Noodlebox API call
+        url: "https://www.noodlebox.com.au/data/locations"
+        headers:
+          accept: "application/json, text/javascript, */*; q=0.01"
+          accept-language: "en-US,en;q=0.9"
+          origin: "https://www.noodlebox.com.au"
+          priority: "u=1, i"
+          referer: "https://www.noodlebox.com.au/locations"
+          sec-ch-ua: '"Brave";v="135", "Not-A.Brand";v="8", "Chromium";v="135"'
+          sec-ch-ua-mobile: "?0"
+          sec-ch-ua-platform: '"Linux"'
+          sec-fetch-dest: "empty"
+          sec-fetch-mode: "cors"
+          sec-fetch-site: "same-origin"
+          sec-gpc: "1"
+          user-agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
+          x-requested-with: "XMLHttpRequest"
+        payload: {} # Empty payload for this API call
+      storage_options:
+        JSONStorage:
+          output_file: "data/noodlebox_locations.jsonl"
+        PostgresStorage:
+          connection_string: "${DATABASE_URL}"
 
   nandos:
-    enabled: true
+    enabled: false
     start_urls:
       - https://www.nandos.com.au/restaurants
     fetcher: AsyncHTTPXFetcher
@@ -204,5 +204,34 @@ websites:
       storage_options:
         JSONStorage:
           output_file: "data/nandos_locations.jsonl"
+        PostgresStorage:
+          connection_string: "${DATABASE_URL}"
+
+  zambrero:
+    enabled: true
+    start_urls:
+      - https://www.zambrero.com.au/locations # Base URL (not directly used by parser)
+    fetcher: AsyncHTTPXFetcher
+    parser: ZambreroParser
+    transformer: ZambreroTransformer
+    storage: [JSONStorage, PostgresStorage]
+    config:
+      fetcher_options:
+        headers:
+          User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+        timeout: 30
+      # Options for state page fetches
+      detail_fetcher_options:
+        timeout: 45
+        max_retries: 3
+        headers:
+          User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+      parser_options:
+        max_concurrent_requests: 8 # Limit concurrent state requests
+      storage_options:
+        JSONStorage:
+          output_file: "data/zambrero_locations.jsonl"
         PostgresStorage:
           connection_string: "${DATABASE_URL}"

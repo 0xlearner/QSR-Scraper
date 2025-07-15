@@ -50,6 +50,8 @@ class PluginFactory:
             "GYGParser": "gyg_parser",
             "NandosParser": "nandos_parser",
             "NandosTransformer": "nandos_transformer",
+            "ZambreroParser": "zambrero_parser",
+            "ZambreroTransformer": "zambrero_transformer",
             "JSONStorage": "json_storage"
         }
 

@@ -4,6 +4,7 @@ from scraper_system.plugins.parsers.kfc_parser import KfcParser
 from scraper_system.plugins.parsers.gyg_parser import GygParser
 from scraper_system.plugins.parsers.nandos_parser import NandosParser
 from scraper_system.plugins.parsers.noodlebox_parser import NoodleboxParser
+from scraper_system.plugins.parsers.zambrero_parser import ZambreroParser
 
 __all__ = [
     "EljannahParser",
@@ -12,4 +13,5 @@ __all__ = [
     "GygParser",
     "NandosParser",
     "NoodleboxParser",
+    "ZambreroParser",
 ]
