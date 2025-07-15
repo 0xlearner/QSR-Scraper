@@ -5,7 +5,7 @@ global_settings:
   log_to_file: true # Whether to log to a file in the logs directory
 websites:
   grilld_restaurants:
-    enabled: false
+    enabled: true
     start_urls:
       - https://grilld.com.au/restaurants # The main listing page
     fetcher: AsyncHTTPXFetcher # Used for the initial fetch AND detail fetches
@@ -31,7 +31,7 @@ websites:
           connection_string: "${DATABASE_URL}" # Use Heroku Postgres connection string from environment variable
 
   guzman_y_gomez:
-    enabled: false
+    enabled: true
     start_urls:
       - https://www.guzmanygomez.com.au/locations/
     fetcher: AsyncHTTPXFetcher
@@ -58,7 +58,7 @@ websites:
           connection_string: "${DATABASE_URL}"
 
   eljannah:
-    enabled: false
+    enabled: true
     start_urls:
       - https://eljannah.com.au/locations/
     fetcher: AsyncHTTPXFetcher
@@ -78,7 +78,7 @@ websites:
           connection_string: "${DATABASE_URL}"
 
   kfc_au:
-    enabled: false
+    enabled: true
     # start_urls: # Not needed by KfcParser
     fetcher: AsyncHTTPXFetcher
     parser: KfcParser
@@ -88,7 +88,7 @@ websites:
         # --- Standard Fetcher Options (applied generally, can be overridden by api_settings) ---
         timeout: 30
         max_retries: 2
-        use_proxy: true # Set to false due to low google success rates for now.
+        use_proxy: true
         proxy_username: ${IPROYAL_USERNAME}
         proxy_password: ${IPROYAL_PASSWORD}
 
@@ -141,7 +141,7 @@ websites:
           connection_string: "${DATABASE_URL}"
 
   noodlebox:
-    enabled: false
+    enabled: true
     # start_urls are ignored by NoodleboxParser, but keep one for the loop structure
     start_urls:
       - https://www.noodlebox.com.au/locations # This URL isn't fetched by the parser itself
@@ -179,7 +179,7 @@ websites:
           connection_string: "${DATABASE_URL}"
 
   nandos:
-    enabled: false
+    enabled: true
     start_urls:
       - https://www.nandos.com.au/restaurants
     fetcher: AsyncHTTPXFetcher
@@ -208,7 +208,7 @@ websites:
           connection_string: "${DATABASE_URL}"
 
   zambrero:
-    enabled: false
+    enabled: true
     start_urls:
       - https://www.zambrero.com.au/locations # Base URL (not directly used by parser)
     fetcher: AsyncHTTPXFetcher
@@ -233,6 +233,61 @@ websites:
       storage_options:
         JSONStorage:
           output_file: "data/zambrero_locations.jsonl"
+        PostgresStorage:
+          connection_string: "${DATABASE_URL}"
+
+  oporto:
+    enabled: true
+    start_urls:
+      - https://www.oporto.com.au/api-proxy/stores?include=amenities,availability,delivery,collection,holiday,storeAddress,salesforce # API endpoint (not directly used by parser)
+    fetcher: AsyncHTTPXFetcher
+    parser: OportoParser
+    transformer: OportoTransformer
+    storage: [JSONStorage, PostgresStorage]
+    config:
+      fetcher_options:
+        headers:
+          User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+          Accept: "application/json, text/plain, */*"
+          Accept-Language: "en-US,en;q=0.9"
+          Accept-Encoding: "gzip, deflate, br"
+          Connection: "keep-alive"
+          Sec-Fetch-Dest: "empty"
+          Sec-Fetch-Mode: "cors"
+          Sec-Fetch-Site: "same-origin"
+          Referer: "https://www.oporto.com.au/"
+        timeout: 30
+        max_retries: 3
+      storage_options:
+        JSONStorage:
+          output_file: "data/oporto_locations.jsonl"
+        PostgresStorage:
+          connection_string: "${DATABASE_URL}"
+
+  red_rooster:
+    enabled: true
+    start_urls:
+      - https://content-acl.redrooster.com.au/all_stores.json # API endpoint (not directly used by parser)
+    fetcher: AsyncHTTPXFetcher
+    parser: RedRoosterParser
+    transformer: RedRoosterTransformer
+    storage: [JSONStorage, PostgresStorage]
+    config:
+      fetcher_options:
+        headers:
+          User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+          Accept: "application/json, text/plain, */*"
+          Accept-Language: "en-US,en;q=0.9"
+          Accept-Encoding: "gzip, deflate, br"
+          Connection: "keep-alive"
+          Sec-Fetch-Dest: "empty"
+          Sec-Fetch-Mode: "cors"
+          Sec-Fetch-Site: "same-origin"
+        timeout: 30
+        max_retries: 3
+      storage_options:
+        JSONStorage:
+          output_file: "data/redrooster_locations.jsonl"
         PostgresStorage:
           connection_string: "${DATABASE_URL}"
 

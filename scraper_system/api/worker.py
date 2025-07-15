@@ -42,7 +42,7 @@ if __name__ == "__main__":
     try:
         logger.info("Starting scraper worker...")
         worker = Worker(queues=["scraper_jobs"], connection=redis_conn)
-        logger.info(f"Listening for jobs on queue: scraper_jobs (timeout: 1800s)")
+        logger.info("Listening for jobs on queue: scraper_jobs (timeout: 1800s)")
         worker.work()
     except Exception as e:
         logger.error(f"Worker failed: {str(e)}")

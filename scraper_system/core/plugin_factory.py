@@ -8,19 +8,22 @@ from scraper_system.interfaces.storage_interface import StorageInterface
 
 logger = logging.getLogger(__name__)
 
+
 class PluginFactory:
     """Factory class for creating and managing scraper plugins"""
 
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self._plugin_paths = {
-            'fetcher': 'scraper_system.plugins.fetchers',
-            'parser': 'scraper_system.plugins.parsers',
-            'transformer': 'scraper_system.plugins.transformers',
-            'storage': 'scraper_system.plugins.storage'
+            "fetcher": "scraper_system.plugins.fetchers",
+            "parser": "scraper_system.plugins.parsers",
+            "transformer": "scraper_system.plugins.transformers",
+            "storage": "scraper_system.plugins.storage",
         }
 
-    def _import_plugin_class(self, plugin_name: str, plugin_type: str) -> Optional[Type]:
+    def _import_plugin_class(
+        self, plugin_name: str, plugin_type: str
+    ) -> Optional[Type]:
         """Import a plugin class based on its name and type"""
         try:
             # Determine the module path based on plugin type and name
@@ -50,11 +53,15 @@ class PluginFactory:
             "GYGParser": "gyg_parser",
             "NandosParser": "nandos_parser",
             "NandosTransformer": "nandos_transformer",
+            "OportoParser": "oporto_parser",
+            "OportoTransformer": "oporto_transformer",
+            "RedRoosterParser": "redrooster_parser",
+            "RedRoosterTransformer": "redrooster_transformer",
             "ZambreroParser": "zambrero_parser",
             "ZambreroTransformer": "zambrero_transformer",
             "ZeusParser": "zeus_parser",
             "ZeusTransformer": "zeus_transformer",
-            "JSONStorage": "json_storage"
+            "JSONStorage": "json_storage",
         }
 
         if class_name in special_cases:
@@ -62,35 +69,38 @@ class PluginFactory:
 
         # Generic conversion for other cases
         import re
+
         # Convert camel case to snake case
-        name = re.sub('([A-Z])', r'_\1', class_name).lower().lstrip('_')
+        name = re.sub("([A-Z])", r"_\1", class_name).lower().lstrip("_")
         return name
 
     def create_fetcher(self, site_config: Dict[str, Any]) -> Optional[FetcherInterface]:
         """Create a fetcher instance based on site configuration"""
-        fetcher_name = site_config.get('fetcher')
+        fetcher_name = site_config.get("fetcher")
         if not fetcher_name:
             return None
 
-        fetcher_class = self._import_plugin_class(fetcher_name, 'fetcher')
+        fetcher_class = self._import_plugin_class(fetcher_name, "fetcher")
         if not fetcher_class:
             return None
 
         # Pass the entire fetcher_options as a single config dictionary
-        fetcher_config = site_config.get('config', {}).get('fetcher_options', {})
+        fetcher_config = site_config.get("config", {}).get("fetcher_options", {})
         try:
             return fetcher_class(config=fetcher_config)  # Pass as named parameter
         except Exception as e:
             logger.error(f"Failed to instantiate fetcher {fetcher_name}: {e}")
             return None
 
-    def create_parser(self, site_config: Dict[str, Any], fetcher: FetcherInterface) -> Optional[ParserInterface]:
+    def create_parser(
+        self, site_config: Dict[str, Any], fetcher: FetcherInterface
+    ) -> Optional[ParserInterface]:
         """Create a parser instance based on site configuration"""
-        parser_name = site_config.get('parser')
+        parser_name = site_config.get("parser")
         if not parser_name:
             return None
 
-        parser_class = self._import_plugin_class(parser_name, 'parser')
+        parser_class = self._import_plugin_class(parser_name, "parser")
         if not parser_class:
             return None
 
@@ -100,37 +110,45 @@ class PluginFactory:
             logger.error(f"Failed to instantiate parser {parser_name}: {e}")
             return None
 
-    def create_transformer(self, site_config: Dict[str, Any]) -> Optional[TransformerInterface]:
+    def create_transformer(
+        self, site_config: Dict[str, Any]
+    ) -> Optional[TransformerInterface]:
         """Create a transformer instance based on site configuration"""
-        transformer_name = site_config.get('transformer')
+        transformer_name = site_config.get("transformer")
         if not transformer_name:
             return None
 
-        transformer_class = self._import_plugin_class(transformer_name, 'transformer')
+        transformer_class = self._import_plugin_class(transformer_name, "transformer")
         if not transformer_class:
             return None
 
-        transformer_config = site_config.get('config', {}).get('transformer_options', {})
+        transformer_config = site_config.get("config", {}).get(
+            "transformer_options", {}
+        )
         try:
-            if 'api_key' in transformer_config:
-                return transformer_class(api_key=transformer_config['api_key'])
+            if "api_key" in transformer_config:
+                return transformer_class(api_key=transformer_config["api_key"])
             return transformer_class()
         except Exception as e:
             logger.error(f"Failed to instantiate transformer {transformer_name}: {e}")
             return None
 
-    def create_storage_plugins(self, site_config: Dict[str, Any]) -> List[StorageInterface]:
+    def create_storage_plugins(
+        self, site_config: Dict[str, Any]
+    ) -> List[StorageInterface]:
         """Create storage plugin instances based on site configuration"""
-        storage_names = site_config.get('storage', [])
+        storage_names = site_config.get("storage", [])
         storage_plugins = []
 
         for storage_name in storage_names:
-            storage_class = self._import_plugin_class(storage_name, 'storage')
+            storage_class = self._import_plugin_class(storage_name, "storage")
             if storage_class:
                 try:
                     storage_plugins.append(storage_class())
                 except Exception as e:
-                    logger.error(f"Failed to instantiate storage plugin {storage_name}: {e}")
+                    logger.error(
+                        f"Failed to instantiate storage plugin {storage_name}: {e}"
+                    )
 
         return storage_plugins
 
