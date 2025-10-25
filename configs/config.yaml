@@ -48,15 +48,49 @@ websites:
         scraperapi_key: ${SCRAPERAPI_KEY}
         scraperapi_options: # Optional dictionary for extra ScraperAPI params
           country_code: "au" # Example: Request Australian IPs
-          # render: "true"                     # Example: Uncomment to enable JS rendering (slower, costs more credits)
-          # premium: "true"                    # Example: Uncomment to use premium proxies (if needed, costs more)
-          keep_headers: "true"
+
+  chargrill_charlies:
+    enabled: true
+    start_urls:
+      - https://chargrillcharlies.com/locations
+    fetcher: ZendriverFetcher
+    parser: ChargrillCharliesParser
+    transformer: ChargrillCharliesTransformer
+    storage: [PostgresStorage]
+    config:
+      fetcher_options:
+        headless: true
+        timeout: 30
+        wait_for_load: 3.0
+        user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
       storage_options:
         JSONStorage:
-          output_file: "data/gyg_locations.jsonl"
+          output_file: "data/chargrill_charlies_locations.jsonl"
         PostgresStorage:
           connection_string: "${DATABASE_URL}"
 
+  yochi:
+    enabled: true
+    start_urls:
+      - https://yochi.com.au/yochi-venues/
+    fetcher: AsyncHTTPXFetcher
+    parser: YochiParser
+    transformer: YochiTransformer
+    storage: [PostgresStorage]
+    config:
+      fetcher_options:
+        headers:
+          User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+        timeout: 60
+      storage_options:
+        JSONStorage:
+          output_file: "data/yochi_locations.jsonl"
+        PostgresStorage:
+          connection_string: "${DATABASE_URL}"
+          # render: "true"                     # Example: Uncomment to enable JS rendering (slower, costs more credits)
+          # premium: "true"                    # Example: Uncomment to use premium proxies (if needed, costs more)
+          keep_headers: "true"
   eljannah:
     enabled: true
     start_urls:

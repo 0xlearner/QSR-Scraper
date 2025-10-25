@@ -50,7 +50,12 @@ class PluginFactory:
         # Special handling for known cases
         special_cases = {
             "AsyncHTTPXFetcher": "http_fetcher",
+            "ZendriverFetcher": "zendriver_fetcher",
             "GYGParser": "gyg_parser",
+            "ChargrillCharliesParser": "chargrillcharlies_parser",
+            "ChargrillCharliesTransformer": "chargrillcharlies_transformer",
+            "YochiParser": "yochi_parser",
+            "YochiTransformer": "yochi_transformer",
             "NandosParser": "nandos_parser",
             "NandosTransformer": "nandos_transformer",
             "OportoParser": "oporto_parser",
